@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ProductCard } from '../components/ProductCard'
 import { SkeletonGrid, useTitle } from '../components/ui'
@@ -21,6 +21,16 @@ export function HomePage() {
   const shelf = [...products.filter((product) => product.badge === 'new'), ...products.filter((product) => product.badge !== 'new')].slice(0, 8)
   const shown = more ? categories : categories.slice(0, 5)
   const kit = products.find((product) => product.id === 'kit')
+  const [slide, setSlide] = useState(0)
+  const slides = [
+    { id: 'new', to: '/catalog?badge=new' },
+    { id: 'kit', to: '/p/kit' },
+  ]
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setSlide((current) => (current + 1) % slides.length), 5000)
+    return () => window.clearInterval(timer)
+  }, [slides.length])
 
   function cover(id: string) {
     const product = products.find((item) => item.id === COVER[id]) || products.find((item) => item.category === id)
@@ -31,15 +41,36 @@ export function HomePage() {
 
   return (
     <div>
-      <section className="promo-row" aria-label="מבצעים">
-        <Link className="promo" to="/catalog?badge=new">
-          <img src="/products/walker-std.jpg" alt="" />
-          <span>מוצרים חדשים</span>
-        </Link>
-        <Link className="promo promo-sale" to="/p/kit">
-          <img src={kit ? productImage(kit) : '/products/kit.png'} alt="" />
-          <span>מבצע לערכה</span>
-        </Link>
+      <section className="hero-slider" aria-label="כניסה">
+        <div className="hero-track" style={{ transform: `translateX(${slide * 100}%)` }}>
+          <Link className="hero-slide" to={slides[0].to}>
+            <div>
+              <p className="hero-kicker">PRO PHARM</p>
+              <h2>מוצרים חדשים</h2>
+              <p>תמיכות, הליכה וציוד ביתי חדש במדף.</p>
+              <span className="hero-cta">לכל המוצרים</span>
+            </div>
+            <img src="/products/walker-std.jpg" alt="" />
+          </Link>
+          <Link className="hero-slide hero-sale" to={slides[1].to}>
+            <div>
+              <p className="hero-kicker">מבצע</p>
+              <h2>ערכת עזרה ראשונה</h2>
+              <p>במחיר מוזל לזמן מוגבל.</p>
+              <span className="hero-cta">לערכה</span>
+            </div>
+            <div className="hero-deal">
+              <img src={kit ? productImage(kit) : '/products/kit.png'} alt="" />
+              <span className="deal-now">{kit?.price ?? 89} ₪</span>
+              <span className="deal-was">{kit?.compareAt ?? 119} ₪</span>
+            </div>
+          </Link>
+        </div>
+        <div className="hero-dots">
+          {slides.map((item, index) => (
+            <button key={item.id} type="button" className={slide === index ? 'on' : ''} aria-label={`שקף ${index + 1}`} onClick={() => setSlide(index)} />
+          ))}
+        </div>
       </section>
 
       <section className="home-cats">
