@@ -10,7 +10,7 @@ export function Layout() {
   const location = useLocation()
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [contactOpen, setContactOpen] = useState(false)
+  const [termsOpen, setTermsOpen] = useState(false)
 
   useEffect(() => {
     setMenuOpen(false)
@@ -78,38 +78,41 @@ export function Layout() {
       <footer className="footer">
         <div className="container footer-sheet">
           <img className="footer-logo" src="/logo.jpg" alt="PRO PHARM" />
-          <button
-            type="button"
-            className="footer-pin"
-            aria-label="מיקום"
-            aria-expanded={contactOpen}
-            onClick={() =>
-              setContactOpen((open) => {
-                if (!open) window.open(PICKUP.maps, '_blank', 'noopener,noreferrer')
-                return !open
-              })
-            }
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z" />
-            </svg>
-          </button>
-          {contactOpen ? (
-            <div className="footer-links">
-              <a className="footer-pin" href="tel:0505959596" aria-label="טלפון">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 7a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.4 11.4 0 0 0 .57 3.6 1 1 0 0 1-.25 1z" />
-                </svg>
-              </a>
-              <a className="footer-pin" href="mailto:propharm2026@gmail.com" aria-label="אימייל">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="currentColor" d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5L4 8V6l8 5 8-5z" />
-                </svg>
-              </a>
-            </div>
-          ) : null}
+          <div className="footer-links">
+            <a className="footer-pin" href={PICKUP.maps} target="_blank" rel="noreferrer" aria-label="מיקום">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z" />
+              </svg>
+            </a>
+            <a className="footer-pin footer-waze" href={PICKUP.waze} target="_blank" rel="noreferrer" aria-label="Waze">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M12 3a8 8 0 0 0-8 8c0 2.4 1.1 4.2 2.2 5.5L7 20.5c.3.6 1.1.7 1.5.2l1.2-1.4A8 8 0 1 0 12 3zm-2.2 8.2a1.2 1.2 0 1 1 0-2.4 1.2 1.2 0 0 1 0 2.4zm4.4 0a1.2 1.2 0 1 1 0-2.4 1.2 1.2 0 0 1 0 2.4zM8.8 13.2c.8 1.4 2 2.1 3.2 2.1s2.4-.7 3.2-2.1" />
+              </svg>
+            </a>
+            <button type="button" className="footer-pin" aria-label="תקנון" onClick={() => setTermsOpen(true)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M7 3h8l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm7 1.5V9h4.5L14 4.5zM8 12h8v1.5H8zm0 3h8v1.5H8zm0 3h5v1.5H8z" />
+              </svg>
+            </button>
+          </div>
+          <p className="footer-note">{settings.disclaimer}</p>
         </div>
       </footer>
+      {termsOpen ? (
+        <div className="terms-dialog" role="presentation" onClick={() => setTermsOpen(false)}>
+          <div className="terms-sheet" role="dialog" aria-label="תקנון" onClick={(event) => event.stopPropagation()}>
+            <h2>תקנון</h2>
+            <p>האתר הוא חנות תצוגה. הוא אינו בית מרקחת ואינו מחליף ייעוץ רפואי.</p>
+            <p>אין באתר תרופות מרשם. הטקסטים מתארים מוצרים בלבד.</p>
+            <p>איסוף עצמי: {PICKUP.line}.</p>
+            <p>הרשמה לאזור האישי מעניקה 10% לקנייה הבאה עם הקופון WELCOME10.</p>
+            <p>פרטי כרטיס אשראי אינם נשמרים, ואין באתר סליקה אמיתית.</p>
+            <button type="button" className="btn" onClick={() => setTermsOpen(false)}>
+              סגירה
+            </button>
+          </div>
+        </div>
+      ) : null}
       {toast ? (
         <div className="toast" role="status">
           {toast}

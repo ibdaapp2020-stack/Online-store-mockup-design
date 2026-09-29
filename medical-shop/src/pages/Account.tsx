@@ -149,8 +149,11 @@ export function AccountPage() {
   if (!member) {
     return (
       <div className="summary wide panel">
-        <h1>כניסה</h1>
-        <p className="muted">שם משתמש וסיסמה. המערכת מזהה אם מדובר בבעלים, בלקוח או בעובד.</p>
+        <div className="offer-banner">
+          <strong>הירשמו וקבלו 10% לקנייה הבאה</strong>
+          <p>ההטבה נשמרת בחשבון החדש ומופעלת עם הקופון WELCOME10.</p>
+        </div>
+        <h1>{mode === 'register' ? 'הרשמה' : 'כניסה'}</h1>
         <div className="choice-row">
           <button type="button" className={mode === 'login' ? 'choice on' : 'choice'} onClick={() => setMode('login')}>
             כניסה
@@ -201,7 +204,7 @@ export function AccountPage() {
           </label>
           {error ? <p className="form-errors">{error}</p> : null}
           <button className="btn" type="submit">
-            {mode === 'login' ? 'כניסה' : 'פתיחת אזור אישי'}
+            {mode === 'login' ? 'כניסה' : 'הרשמה וקבלת 10%'}
           </button>
         </form>
       </div>

@@ -814,7 +814,8 @@ export function registerClub(app, { db, requireAdmin }) {
     const customerId = id('cus')
     db.prepare(
       'INSERT INTO customers (id, name, phone, email, password_hash, points, next_percent, created_at, birthday, city, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(customerId, name, phone, email, hashPassword(password), 0, 0, new Date().toISOString(), birthday, city, address)
+    ).run(customerId, name, phone, email, hashPassword(password), 0, 10, new Date().toISOString(), birthday, city, address)
+    db.prepare('UPDATE customers SET coupon_code = ?, coupon_percent = ? WHERE id = ?').run('WELCOME10', 10, customerId)
     const token = signSession(db, 'customer', { id: customerId })
     db.prepare('INSERT INTO customer_sessions (token, customer_id, created_at) VALUES (?, ?, ?)').run(token, customerId, new Date().toISOString())
     cookie(res, 'medica_customer', token)
