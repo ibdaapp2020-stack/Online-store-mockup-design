@@ -219,7 +219,33 @@ export async function initDb() {
   }
 
   const count = db.prepare('SELECT COUNT(*) AS count FROM products').get().count
-  if (count > 0) return
+  if (count > 0) {
+    const have = new Set(db.prepare('SELECT id FROM products').all().map((row) => row.id))
+    const insert = db.prepare(`
+      INSERT INTO products (
+        id, name, category, price, compare_at, description, specs, stock, badge, rating, reviews, tone, image, active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `)
+    for (const product of seedFile.products || []) {
+      if (have.has(product.id)) continue
+      insert.run(
+        product.id,
+        product.name,
+        product.category,
+        product.price,
+        product.compare_at ?? null,
+        product.description,
+        typeof product.specs === 'string' ? product.specs : JSON.stringify(product.specs ?? []),
+        product.stock,
+        product.badge ?? null,
+        product.rating,
+        product.reviews,
+        product.tone,
+        product.image || `/products/${product.id}.png`,
+      )
+    }
+    return
+  }
 
   const seed = await loadSeed()
   const insertCategory = db.prepare('INSERT INTO categories (id, name, blurb, sort) VALUES (?, ?, ?, ?)')

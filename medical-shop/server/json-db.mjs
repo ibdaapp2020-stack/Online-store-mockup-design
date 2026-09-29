@@ -11,6 +11,14 @@ export function createJsonDb(file, fallback) {
   state.sessions ||= []
   state.categories ||= []
   state.products ||= []
+  const knownProducts = new Set(state.products.map((product) => product.id))
+  let mergedProducts = false
+  for (const product of fallback.products || []) {
+    if (knownProducts.has(product.id)) continue
+    state.products.push(product)
+    mergedProducts = true
+  }
+  if (mergedProducts) writeFileSync(file, JSON.stringify(state))
   state.orders ||= []
   state.customers ||= []
   state.customer_sessions ||= []

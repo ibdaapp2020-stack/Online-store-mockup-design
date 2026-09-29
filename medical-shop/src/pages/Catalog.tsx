@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ProductCard } from '../components/ProductCard'
 import { EmptyState, SkeletonGrid, useTitle } from '../components/ui'
@@ -16,6 +17,7 @@ export function CatalogPage() {
   useTitle('קטלוג')
   const { products, categories, ready } = useStore()
   const [params, setParams] = useSearchParams()
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const cat = params.get('cat') ?? ''
   const sort = params.get('sort') ?? ''
   const q = params.get('q') ?? ''
@@ -71,11 +73,14 @@ export function CatalogPage() {
       <div className="section-head">
         <div>
           <h1>{category ? category.name : 'הקטלוג'}</h1>
-          <p className="lede">{category ? category.blurb : 'כל מוצרי המדף להדגמה, בלי מרשם.'}</p>
+          <p className="lede catalog-lede">{category ? category.blurb : 'כל מוצרי המדף להדגמה, בלי מרשם.'}</p>
         </div>
+        <button type="button" className="filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}>
+          סינון
+        </button>
       </div>
       <div className="catalog-layout">
-        <aside className="filters">
+        <aside className={filtersOpen ? 'filters open' : 'filters'}>
           <label>
             חיפוש בקטלוג
             <input value={q} onChange={(event) => setParam('q', event.target.value)} placeholder="שם, תיאור או מפרט" />
@@ -98,11 +103,11 @@ export function CatalogPage() {
           <div className="split-fields">
             <label>
               מחיר מ־
-              <input value={min} inputMode="numeric" onChange={(event) => setParam('min', event.target.value)} />
+              <input value={min} inputMode="numeric" placeholder="לא חובה" onChange={(event) => setParam('min', event.target.value)} />
             </label>
             <label>
               עד
-              <input value={max} inputMode="numeric" onChange={(event) => setParam('max', event.target.value)} />
+              <input value={max} inputMode="numeric" placeholder="לא חובה" onChange={(event) => setParam('max', event.target.value)} />
             </label>
           </div>
           <label className="check-line">
