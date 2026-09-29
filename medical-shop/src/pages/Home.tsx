@@ -18,7 +18,11 @@ export function HomePage() {
   useTitle('בית')
   const { products, categories, ready } = useStore()
   const [more, setMore] = useState(false)
-  const shelf = [...products.filter((product) => product.badge === 'new'), ...products.filter((product) => product.badge !== 'new')].slice(0, 8)
+  const best = [...products.filter((product) => product.badge === 'popular')].sort((a, b) => b.reviews - a.reviews).slice(0, 4)
+  const recommended = [...products]
+    .filter((product) => !best.some((item) => item.id === product.id))
+    .sort((a, b) => b.rating - a.rating || b.reviews - a.reviews)
+    .slice(0, 4)
   const shown = more ? categories : categories.slice(0, 5)
   const kit = products.find((product) => product.id === 'kit')
   const [slide, setSlide] = useState(0)
@@ -94,18 +98,40 @@ export function HomePage() {
 
       <section>
         <div className="section-head">
-          <h2>המוצרים</h2>
-          <Link to="/catalog">לכל המוצרים</Link>
+          <h2>הכי נמכר</h2>
+          <Link to="/catalog?badge=popular">לכל הנמכרים</Link>
         </div>
         {ready ? (
           <div className="product-grid">
-            {shelf.map((product) => (
+            {best.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
         ) : (
           <SkeletonGrid />
         )}
+      </section>
+
+      <Link className="club-banner" to="/account">
+        <img src="/products/sleep-pillow.jpg" alt="" />
+        <div>
+          <p className="hero-kicker">מועדון לקוחות</p>
+          <h2>10% לקנייה הבאה</h2>
+          <p>נרשמים לאזור האישי ומקבלים את ההטבה בחשבון.</p>
+          <span className="hero-cta">להרשמה</span>
+        </div>
+      </Link>
+
+      <section>
+        <div className="section-head">
+          <h2>מוצרים מומלצים</h2>
+          <Link to="/catalog?sort=rating">לפי דירוג</Link>
+        </div>
+        <div className="product-grid">
+          {recommended.map((product) => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
       </section>
     </div>
   )

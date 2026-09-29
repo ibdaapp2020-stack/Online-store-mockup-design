@@ -156,6 +156,23 @@ section { margin-top: 1.6rem; }
 .hero-dots { display: flex; justify-content: center; gap: 0.35rem; margin-top: 0.45rem; }
 .hero-dots button { width: 8px; height: 8px; border: 0; border-radius: 99px; background: #c9e4e2; padding: 0; cursor: pointer; }
 .hero-dots button.on { width: 18px; background: var(--teal); }
+.club-banner {
+  margin-top: 1.2rem;
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 0.7rem;
+  align-items: center;
+  text-decoration: none;
+  color: var(--ink);
+  background: linear-gradient(160deg, #e7f7f6, #ffffff 62%);
+  border: 1px solid #d5eeed;
+  border-radius: 22px;
+  padding: 0.85rem;
+  overflow: hidden;
+}
+.club-banner img { width: 100%; height: 150px; object-fit: contain; background: white; border-radius: 16px; }
+.club-banner h2 { margin: 0.1rem 0 0.3rem; font-size: 1.45rem; }
+.club-banner p { margin: 0 0 0.65rem; }
 .cat-showcase { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
 .cat-tile {
   background: white;
@@ -485,6 +502,9 @@ input, select {
   .hero-slide h2 { font-size: 1.25rem; }
   .hero-slide img { height: 140px; }
   .deal-now { width: 56px; height: 56px; font-size: 0.82rem; }
+  .club-banner { grid-template-columns: 0.75fr 1.25fr; padding: 0.65rem; }
+  .club-banner img { height: 108px; }
+  .club-banner h2 { font-size: 1.15rem; }
   .cat-tile img { height: 70px; }
   .cat-tile strong { font-size: 0.75rem; }
   .cat-more { min-height: 104px; font-size: 1.05rem; }
