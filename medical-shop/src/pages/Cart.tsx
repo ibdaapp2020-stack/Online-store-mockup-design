@@ -69,7 +69,7 @@ export function CartPage() {
           </p>
           {coupon ? (
             <p className="coupon-on">
-              קופון {coupon} פעיל (10%)
+              קופון {coupon} פעיל
               <button type="button" className="text-btn" onClick={clearCoupon}>
                 הסרת קופון
               </button>
@@ -79,8 +79,9 @@ export function CartPage() {
               className="coupon-form"
               onSubmit={(event) => {
                 event.preventDefault()
-                const ok = applyCoupon(code)
-                setCouponNote(ok ? 'ההנחה נוספה לסיכום.' : `הקוד לא מוכר. נסו ${settings.couponCode}.`)
+                void applyCoupon(code).then((ok) => {
+                  setCouponNote(ok ? 'ההנחה נוספה לסיכום.' : 'הקוד לא הופעל.')
+                })
               }}
             >
               <label>

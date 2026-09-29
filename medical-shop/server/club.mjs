@@ -136,6 +136,8 @@ function mapCustomer(row) {
     address: row.address || '',
     points: Number(row.points) || 0,
     nextPercent: Number(row.next_percent) || 0,
+    couponCode: row.coupon_code || '',
+    couponPercent: Number(row.coupon_percent) || 0,
   }
 }
 
@@ -147,6 +149,7 @@ function mapService(row) {
     openTime: row.open_time,
     closeTime: row.close_time,
     slotMinutes: Number(row.slot_minutes) || 30,
+    therapist: row.therapist || '',
     active: row.active === 1 || row.active === true,
   }
 }
@@ -161,9 +164,20 @@ function mapAppointment(row, services) {
     customerName: row.customer_name,
     date: row.date,
     time: row.time,
+    therapist: row.therapist || service?.therapist || '',
     status: row.status,
     createdAt: row.created_at,
   }
+}
+
+export function personalCoupon(db, req, code) {
+  const normalized = String(code || '').trim().toUpperCase()
+  if (!normalized) return null
+  const customer = customerFrom(req, db)
+  if (!customer || String(customer.coupon_code || '').toUpperCase() !== normalized) return null
+  const percent = Number(customer.coupon_percent) || 0
+  if (percent <= 0) return null
+  return { code: String(customer.coupon_code).toUpperCase(), percent }
 }
 
 function customerFrom(req, db) {
@@ -360,6 +374,24 @@ function ensureSchema(db) {
       /* json store ignores table SQL */
     }
   }
+  for (const sql of [
+    "ALTER TABLE admin ADD COLUMN username TEXT DEFAULT 'admin'",
+    "ALTER TABLE customers ADD COLUMN coupon_code TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE customers ADD COLUMN coupon_percent INTEGER NOT NULL DEFAULT 0',
+    "ALTER TABLE services ADD COLUMN therapist TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE appointments ADD COLUMN therapist TEXT NOT NULL DEFAULT ''",
+  ]) {
+    try {
+      db.exec(sql)
+    } catch {
+      /* column already exists */
+    }
+  }
+  try {
+    db.prepare("UPDATE admin SET username = 'admin' WHERE id = 1 AND (username IS NULL OR username = '')").run()
+  } catch {
+    /* username column is filled by default */
+  }
   try {
     db.exec("ALTER TABLE products ADD COLUMN sizes TEXT NOT NULL DEFAULT '[]'")
   } catch {
@@ -405,6 +437,11 @@ function ensureSchema(db) {
     )
     insert.run('measure', 'מדידת מדרסים', JSON.stringify([0, 1, 2, 3, 4]), '09:00', '17:00', 30, 1)
     insert.run('consult', 'ייעוץ אורתופדי', JSON.stringify([0, 2, 4]), '10:00', '16:00', 45, 1)
+  }
+  for (const service of db.prepare('SELECT * FROM services').all()) {
+    if (service.therapist) continue
+    const therapist = service.id === 'consult' ? 'ד״ר אורתופדיה' : service.id === 'measure' ? 'מטפל מדרסים' : ''
+    if (therapist) db.prepare('UPDATE services SET therapist = ? WHERE id = ?').run(therapist, service.id)
   }
   if (!db.prepare('SELECT * FROM employees WHERE username = ?').get('staff')) {
     db.prepare('INSERT INTO employees (id, name, username, password_hash, active) VALUES (?, ?, ?, ?, ?)').run(
@@ -703,8 +740,62 @@ export function writeSessionCookie(res, name, token) {
   cookie(res, name, token)
 }
 
+function clearRoleCookies(res) {
+  for (const name of ['medica_admin', 'medica_customer', 'medica_staff']) res.clearCookie(name, { path: '/' })
+}
+
 export function registerClub(app, { db, requireAdmin }) {
   ensureSchema(db)
+
+  app.get('/api/session', (req, res) => {
+    const adminToken = req.cookies?.medica_admin
+    if (adminToken && (readSession(db, adminToken, 'admin') || db.prepare('SELECT token FROM sessions WHERE token = ?').get(adminToken))) {
+      return res.json({ role: 'admin' })
+    }
+    const staff = staffFrom(req, db)
+    if (staff) return res.json({ role: 'staff', name: staff.name })
+    const customer = customerFrom(req, db)
+    if (customer) return res.json({ role: 'customer', customer: mapCustomer(customer) })
+    res.json({ role: '' })
+  })
+
+  app.post('/api/session/login', (req, res) => {
+    const login = String(req.body?.login ?? req.body?.username ?? req.body?.email ?? '').trim().toLowerCase()
+    const password = String(req.body?.password ?? '')
+    if (!login || !password) return res.status(401).json({ error: 'שם משתמש וסיסמה הם שדות חובה' })
+    const admin = db.prepare('SELECT username, password_hash FROM admin WHERE id = 1').get()
+    const adminName = String(admin?.username || 'admin').toLowerCase()
+    if (admin && login === adminName && verifyPassword(password, admin.password_hash)) {
+      clearRoleCookies(res)
+      const token = signSession(db, 'admin')
+      db.prepare('INSERT INTO sessions (token, created_at) VALUES (?, ?)').run(token, new Date().toISOString())
+      cookie(res, 'medica_admin', token)
+      return res.json({ role: 'admin' })
+    }
+    const employee = db.prepare('SELECT * FROM employees WHERE username = ?').get(login)
+    if (employee && (employee.active === 1 || employee.active === true) && verifyPassword(password, employee.password_hash)) {
+      clearRoleCookies(res)
+      const token = signSession(db, 'staff', { id: employee.id })
+      db.prepare('INSERT INTO staff_sessions (token, employee_id, created_at) VALUES (?, ?, ?)').run(token, employee.id, new Date().toISOString())
+      cookie(res, 'medica_staff', token)
+      return res.json({ role: 'staff', name: employee.name })
+    }
+    const customer = db.prepare('SELECT * FROM customers WHERE email = ?').get(login)
+    if (customer && verifyPassword(password, customer.password_hash)) {
+      clearRoleCookies(res)
+      const token = signSession(db, 'customer', { id: customer.id })
+      db.prepare('INSERT INTO customer_sessions (token, customer_id, created_at) VALUES (?, ?, ?)').run(token, customer.id, new Date().toISOString())
+      cookie(res, 'medica_customer', token)
+      return res.json({ role: 'customer', customer: mapCustomer(customer) })
+    }
+    res.status(401).json({ error: 'שם המשתמש או הסיסמה שגויים' })
+  })
+
+  app.post('/api/account/coupon', (req, res) => {
+    const found = personalCoupon(db, req, req.body?.code)
+    if (!found) return res.status(404).json({ error: 'הקופון לא שייך לחשבון הזה' })
+    res.json(found)
+  })
 
   app.post('/api/account/register', (req, res) => {
     const name = String(req.body?.name ?? '').trim()
@@ -830,6 +921,7 @@ export function registerClub(app, { db, requireAdmin }) {
     db.prepare(
       'INSERT INTO appointments (id, service_id, customer_id, customer_name, date, time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(appointmentId, service.id, row.id, row.name, date, time, 'booked', new Date().toISOString())
+    db.prepare('UPDATE appointments SET therapist = ? WHERE id = ?').run(service.therapist || '', appointmentId)
     res.status(201).json(mapAppointment(db.prepare('SELECT * FROM appointments WHERE id = ?').get(appointmentId), [service]))
   })
 
@@ -942,6 +1034,7 @@ export function registerClub(app, { db, requireAdmin }) {
       slotMinutes,
       req.body?.active === false ? 0 : 1,
     )
+    db.prepare('UPDATE services SET therapist = ? WHERE id = ?').run(String(req.body?.therapist ?? '').trim(), serviceId)
     res.status(201).json(mapService(db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId)))
   })
 
@@ -962,6 +1055,9 @@ export function registerClub(app, { db, requireAdmin }) {
       req.body?.active === false ? 0 : 1,
       current.id,
     )
+    if (req.body?.therapist != null) {
+      db.prepare('UPDATE services SET therapist = ? WHERE id = ?').run(String(req.body.therapist).trim(), current.id)
+    }
     res.json(mapService(db.prepare('SELECT * FROM services WHERE id = ?').get(current.id)))
   })
 
@@ -984,7 +1080,7 @@ export function registerClub(app, { db, requireAdmin }) {
   app.patch('/api/admin/appointments/:id', requireAdmin, (req, res) => {
     const current = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id)
     if (!current) return res.status(404).json({ error: 'התור לא נמצא' })
-    const status = ['booked', 'done', 'cancelled'].includes(req.body?.status) ? req.body.status : current.status
+    const status = ['booked', 'done', 'cancelled', 'closed'].includes(req.body?.status) ? req.body.status : current.status
     const date = String(req.body?.date ?? current.date)
     const time = String(req.body?.time ?? current.time)
     const customerName = String(req.body?.customerName ?? current.customer_name).trim()
@@ -992,6 +1088,11 @@ export function registerClub(app, { db, requireAdmin }) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || minutes(time) == null || !customerName) {
       return res.status(400).json({ error: 'חסרים פרטי תור' })
     }
+    const clash = db
+      .prepare('SELECT * FROM appointments')
+      .all()
+      .some((item) => item.id !== current.id && item.service_id === serviceId && item.date === date && item.time === time && item.status !== 'cancelled')
+    if (clash) return res.status(400).json({ error: 'השעה הזו כבר תפוסה' })
     db.prepare('UPDATE appointments SET service_id = ?, customer_name = ?, date = ?, time = ?, status = ? WHERE id = ?').run(
       serviceId,
       customerName,
@@ -1000,6 +1101,9 @@ export function registerClub(app, { db, requireAdmin }) {
       status,
       current.id,
     )
+    if (req.body?.therapist != null) {
+      db.prepare('UPDATE appointments SET therapist = ? WHERE id = ?').run(String(req.body.therapist).trim(), current.id)
+    }
     const services = db.prepare('SELECT * FROM services').all().map(mapService)
     res.json(mapAppointment(db.prepare('SELECT * FROM appointments WHERE id = ?').get(current.id), services))
   })
@@ -1008,9 +1112,10 @@ export function registerClub(app, { db, requireAdmin }) {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(String(req.body?.serviceId ?? ''))
     const date = String(req.body?.date ?? '')
     const time = String(req.body?.time ?? '')
-    const customerName = String(req.body?.customerName ?? '').trim()
+    const closed = req.body?.status === 'closed'
+    const customerName = String(req.body?.customerName ?? '').trim() || (closed ? 'סגור' : '')
     const phone = String(req.body?.phone ?? '').trim()
-    if (!service || !/^\d{4}-\d{2}-\d{2}$/.test(date) || minutes(time) == null || !customerName || !phone) {
+    if (!service || !/^\d{4}-\d{2}-\d{2}$/.test(date) || minutes(time) == null || !customerName || (!closed && !phone)) {
       return res.status(400).json({ error: 'שירות, תאריך, שעה, שם וטלפון הם שדות חובה' })
     }
     const clash = db
@@ -1036,7 +1141,8 @@ export function registerClub(app, { db, requireAdmin }) {
     const appointmentId = id('apt')
     db.prepare(
       'INSERT INTO appointments (id, service_id, customer_id, customer_name, date, time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(appointmentId, service.id, customerId, customerName, date, time, 'booked', new Date().toISOString())
+    ).run(appointmentId, service.id, customerId, customerName, date, time, closed ? 'closed' : 'booked', new Date().toISOString())
+    db.prepare('UPDATE appointments SET therapist = ? WHERE id = ?').run(String(req.body?.therapist ?? service.therapist ?? '').trim(), appointmentId)
     const services = db.prepare('SELECT * FROM services').all().map(mapService)
     res.status(201).json({
       ...mapAppointment(db.prepare('SELECT * FROM appointments WHERE id = ?').get(appointmentId), services),
@@ -1082,6 +1188,15 @@ export function registerClub(app, { db, requireAdmin }) {
 
   app.get('/api/admin/customers', requireAdmin, (_req, res) => {
     res.json(db.prepare('SELECT * FROM customers').all().map(mapCustomer))
+  })
+
+  app.post('/api/admin/customers/:id/coupon', requireAdmin, (req, res) => {
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id)
+    if (!customer) return res.status(404).json({ error: 'הלקוח לא נמצא' })
+    const percent = Math.min(100, Math.max(1, Math.round(Number(req.body?.percent) || 10)))
+    const code = `PH${randomBytes(3).toString('hex').toUpperCase()}`
+    db.prepare('UPDATE customers SET coupon_code = ?, coupon_percent = ? WHERE id = ?').run(code, percent, customer.id)
+    res.json(mapCustomer(db.prepare('SELECT * FROM customers WHERE id = ?').get(customer.id)))
   })
 
   app.get('/api/admin/employees', requireAdmin, (_req, res) => {

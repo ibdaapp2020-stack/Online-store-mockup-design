@@ -55,6 +55,7 @@ export function AdminShell() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    document.title = 'ניהול · PRO PHARM'
     let active = true
     fetch('/api/admin/me', { credentials: 'include' })
       .then((response) => {
@@ -149,7 +150,16 @@ type Stats = {
   employees: number
   lowStock: Product[]
   recent: Order[]
+  daily?: Array<{ date: string; total: number; count: number }>
+  pipeline?: Record<string, number>
 }
+
+const PIPELINE = [
+  ['received', 'התקבלה'],
+  ['packing', 'באריזה'],
+  ['shipped', 'נשלחה'],
+  ['delivered', 'נמסרה'],
+] as const
 
 export function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
@@ -193,6 +203,33 @@ export function AdminDashboard() {
           <span>מלאי נמוך</span>
           <strong>{stats.lowStock.length}</strong>
         </article>
+      </div>
+      <div className="chart-grid">
+        <section className="panel">
+          <h2>מחזור 7 ימים</h2>
+          <div className="bars">
+            {(stats.daily ?? []).map((day) => {
+              const max = Math.max(1, ...(stats.daily ?? []).map((item) => item.total))
+              return (
+                <div key={day.date} className="bar">
+                  <span style={{ height: `${Math.max(8, (day.total / max) * 100)}%` }} title={money(day.total)} />
+                  <small>{day.date}</small>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+        <section className="panel">
+          <h2>מעקב הזמנות</h2>
+          <div className="pipeline">
+            {PIPELINE.map(([key, label]) => (
+              <article key={key}>
+                <strong>{stats.pipeline?.[key] ?? 0}</strong>
+                <span>{label}</span>
+              </article>
+            ))}
+          </div>
+        </section>
       </div>
       <div className="admin-links">
         <Link className="btn" to="/admin/orders">הזמנות</Link>

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
-import { applyClubDiscount, adminSettings, lineOptions, nextSettings, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, takeVariantStock, writeSessionCookie } from './club.mjs'
+import { applyClubDiscount, adminSettings, lineOptions, nextSettings, personalCoupon, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, takeVariantStock, writeSessionCookie } from './club.mjs'
 import { bootError as seedError, db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
 
 loadEnv()
@@ -78,7 +78,8 @@ app.post('/api/orders', (req, res) => {
   }
 
   const settings = getSettings()
-  const couponOn = String(req.body?.coupon ?? '').trim().toUpperCase() === settings.couponCode.toUpperCase()
+  const personal = personalCoupon(db, req, req.body?.coupon)
+  const couponOn = !personal && String(req.body?.coupon ?? '').trim().toUpperCase() === settings.couponCode.toUpperCase()
   const items = []
 
   db.exec('BEGIN')
@@ -97,6 +98,10 @@ app.post('/api/orders', (req, res) => {
     }
     const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0)
     const quoted = quoteOrder(subtotal, couponOn, settings)
+    if (personal) {
+      quoted.discount = Math.round(subtotal * (personal.percent / 100))
+      quoted.total = subtotal - quoted.discount + quoted.shipping
+    }
     const club = applyClubDiscount(db, req, quoted, settings)
     const priced = club.priced
     const order = {
@@ -106,7 +111,7 @@ app.post('/api/orders', (req, res) => {
       customer: { name, phone, city, address, customerId: club.customerId },
       items,
       ...priced,
-      coupon: couponOn ? settings.couponCode : undefined,
+      coupon: personal ? personal.code : couponOn ? settings.couponCode : undefined,
     }
     db.prepare(
       `INSERT INTO orders (id, created_at, status, customer_json, items_json, subtotal, discount, shipping, total, coupon)
@@ -133,9 +138,11 @@ app.post('/api/orders', (req, res) => {
 })
 
 app.post('/api/admin/login', (req, res) => {
-  const admin = db.prepare('SELECT password_hash FROM admin WHERE id = 1').get()
-  if (!admin || !verifyPassword(String(req.body?.password ?? ''), admin.password_hash)) {
-    return res.status(401).json({ error: 'סיסמה שגויה' })
+  const admin = db.prepare('SELECT username, password_hash FROM admin WHERE id = 1').get()
+  const username = String(admin?.username || 'admin').toLowerCase()
+  const given = String(req.body?.username ?? req.body?.login ?? '').trim().toLowerCase()
+  if (!admin || given !== username || !verifyPassword(String(req.body?.password ?? ''), admin.password_hash)) {
+    return res.status(401).json({ error: 'שם המשתמש או הסיסמה שגויים' })
   }
   const token = signSession(db, 'admin')
   db.prepare('INSERT INTO sessions (token, created_at) VALUES (?, ?)').run(token, new Date().toISOString())
@@ -162,6 +169,21 @@ app.get('/api/admin/stats', requireAdmin, (_req, res) => {
   const customers = db.prepare('SELECT * FROM customers').all().length
   const appointments = db.prepare('SELECT * FROM appointments').all().filter((item) => item.status === 'booked').length
   const employees = db.prepare('SELECT * FROM employees').all().length
+  const allOrders = db.prepare('SELECT * FROM orders').all()
+  const daily = []
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = new Date(Date.now() - offset * 86400000).toISOString().slice(0, 10)
+    const rows = allOrders.filter((order) => String(order.created_at).slice(0, 10) === date)
+    daily.push({
+      date: date.slice(5),
+      total: rows.reduce((sum, order) => sum + Number(order.total || 0), 0),
+      count: rows.length,
+    })
+  }
+  const pipeline = { received: 0, packing: 0, shipped: 0, delivered: 0 }
+  for (const order of allOrders) {
+    if (pipeline[order.status] != null) pipeline[order.status] += 1
+  }
   res.json({
     orders: orders.count,
     revenue: orders.revenue,
@@ -172,6 +194,8 @@ app.get('/api/admin/stats', requireAdmin, (_req, res) => {
     employees,
     lowStock,
     recent,
+    daily,
+    pipeline,
   })
 })
 

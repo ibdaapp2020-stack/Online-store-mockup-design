@@ -72,6 +72,9 @@ function readOne(sql, args, state) {
   if (sql.startsWith('SELECT * FROM appointments WHERE id')) return byId(state.appointments, args[0])
   if (sql.startsWith('SELECT data FROM settings')) return state.settings ? { data: JSON.stringify(state.settings) } : undefined
   if (sql.startsWith('SELECT id FROM settings')) return state.settings ? { id: 1 } : undefined
+  if (sql.startsWith('SELECT username, password_hash FROM admin')) {
+    return state.admin ? { username: state.admin.username || 'admin', password_hash: state.admin.password_hash } : undefined
+  }
   if (sql.startsWith('SELECT password_hash FROM admin')) return state.admin ? { password_hash: state.admin.password_hash } : undefined
   if (sql.startsWith('SELECT id FROM admin')) return state.admin ? { id: 1 } : undefined
   if (sql.startsWith('SELECT COUNT(*) AS count, COALESCE(SUM(total)')) {
@@ -219,6 +222,13 @@ function writeOne(sql, args, state) {
     })
     return
   }
+  if (sql.startsWith('UPDATE customers SET coupon_code')) {
+    const customer = byId(state.customers, args[2])
+    if (!customer) return
+    customer.coupon_code = args[0]
+    customer.coupon_percent = args[1]
+    return
+  }
   if (sql.startsWith('UPDATE customers SET name')) {
     const customer = byId(state.customers, args[5])
     if (!customer) return
@@ -248,6 +258,11 @@ function writeOne(sql, args, state) {
     })
     return
   }
+  if (sql.startsWith('UPDATE services SET therapist')) {
+    const service = byId(state.services, args[1])
+    if (service) service.therapist = args[0]
+    return
+  }
   if (sql.startsWith('UPDATE services SET name')) {
     const service = byId(state.services, args[6])
     if (!service) return
@@ -274,6 +289,11 @@ function writeOne(sql, args, state) {
       status: args[6],
       created_at: args[7],
     })
+    return
+  }
+  if (sql.startsWith('UPDATE appointments SET therapist')) {
+    const appointment = byId(state.appointments, args[1])
+    if (appointment) appointment.therapist = args[0]
     return
   }
   if (sql.startsWith('UPDATE appointments SET service_id')) {

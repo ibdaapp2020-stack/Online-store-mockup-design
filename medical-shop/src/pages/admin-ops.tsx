@@ -10,6 +10,7 @@ type Service = {
   openTime: string
   closeTime: string
   slotMinutes: number
+  therapist: string
   active: boolean
 }
 
@@ -20,10 +21,22 @@ type Appointment = {
   customerName: string
   date: string
   time: string
+  therapist: string
   status: string
 }
 
-type Member = { id: string; name: string; email: string; phone: string; birthday: string; city: string; points: number; nextPercent: number }
+type Member = {
+  id: string
+  name: string
+  email: string
+  phone: string
+  birthday: string
+  city: string
+  points: number
+  nextPercent: number
+  couponCode: string
+  couponPercent: number
+}
 type Shift = { inAt: string; outAt: string; minutes: number }
 type WorkDay = { date: string; minutes: number; shifts: Shift[] }
 type Correction = { id: string; employeeName: string; date: string; kind: string; requestedAt: string; note: string; status: string }
@@ -41,6 +54,18 @@ type StaffCard = {
   history?: Array<{ id: string; kind: string; at: string; note: string }>
 }
 type Mail = { id: string; orderId: string; to: string; status: string; detail: string; createdAt: string }
+
+function shiftTime(time: string, minutes: number) {
+  const [hour, minute] = time.split(':').map(Number)
+  const total = ((hour * 60 + minute + minutes) % 1440 + 1440) % 1440
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+function waLink(phone: string, text: string) {
+  const digits = phone.replace(/\D/g, '')
+  const intl = digits.startsWith('0') ? `972${digits.slice(1)}` : digits
+  return `https://wa.me/${intl}?text=${encodeURIComponent(text)}`
+}
 
 function hoursLabel(minutes: number) {
   const whole = Math.max(0, Math.round(minutes))
@@ -93,6 +118,7 @@ export function AdminServices() {
           openTime: form.get('openTime'),
           closeTime: form.get('closeTime'),
           slotMinutes: Number(form.get('slotMinutes')),
+          therapist: form.get('therapist'),
           days,
         }),
       })
@@ -133,10 +159,16 @@ export function AdminServices() {
             <input name="closeTime" type="time" defaultValue="17:00" required />
           </label>
         </div>
-        <label>
-          אורך תור בדקות
-          <input name="slotMinutes" type="number" min={10} defaultValue={30} required />
-        </label>
+        <div className="split-fields">
+          <label>
+            אורך תור בדקות
+            <input name="slotMinutes" type="number" min={10} defaultValue={30} required />
+          </label>
+          <label>
+            שם המטפל או הרופא
+            <input name="therapist" placeholder="ד״ר כהן" />
+          </label>
+        </div>
         {error ? <p className="form-errors">{error}</p> : null}
         <button className="btn" type="submit">
           הוספת שירות
@@ -148,6 +180,7 @@ export function AdminServices() {
             <div>
               <strong>{service.name}</strong>
               <p className="muted">
+                {service.therapist ? `${service.therapist} · ` : ''}
                 {(Array.isArray(service.days) ? service.days : []).map((day) => DAY[day]).join(', ')} · {service.openTime}–{service.closeTime} · {service.slotMinutes} דק׳
               </p>
             </div>
@@ -190,8 +223,54 @@ export function AdminServices() {
               <strong>
                 {item.time} · {item.serviceName}
               </strong>
-              <span>{item.customerName}</span>
-              <span>{item.status === 'done' ? 'בוצע' : item.status === 'cancelled' ? 'בוטל' : 'תפוס'}</span>
+              <span>
+                {item.customerName}
+                {item.therapist ? ` · ${item.therapist}` : ''}
+              </span>
+              <span>{item.status === 'done' ? 'בוצע' : item.status === 'cancelled' ? 'בוטל' : item.status === 'closed' ? 'סגור' : 'תפוס'}</span>
+              <div className="row-actions">
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => {
+                    const service = services.find((entry) => entry.id === item.serviceId)
+                    void adminFetch(`/api/admin/appointments/${item.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ time: shiftTime(item.time, -(service?.slotMinutes || 30)) }),
+                    }).then(load)
+                  }}
+                >
+                  שעה קודמת
+                </button>
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => {
+                    const service = services.find((entry) => entry.id === item.serviceId)
+                    void adminFetch(`/api/admin/appointments/${item.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ time: shiftTime(item.time, service?.slotMinutes || 30) }),
+                    }).then(load)
+                  }}
+                >
+                  שעה הבאה
+                </button>
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => {
+                    void adminFetch(`/api/admin/appointments/${item.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: item.status === 'closed' ? 'booked' : 'closed' }),
+                    }).then(load)
+                  }}
+                >
+                  {item.status === 'closed' ? 'פתיחה' : 'סגירה'}
+                </button>
+              </div>
             </article>
           ))}
       </div>
@@ -210,6 +289,7 @@ export function AdminServices() {
               date: form.get('date'),
               time: form.get('time'),
               customerName: form.get('customerName'),
+              therapist: form.get('therapist'),
               phone: form.get('phone'),
               email: form.get('email'),
               createCustomer: form.get('createCustomer') === 'on',
@@ -245,6 +325,10 @@ export function AdminServices() {
             <input name="time" type="time" required />
           </label>
         </div>
+        <label>
+          מטפל או רופא
+          <input name="therapist" placeholder="אם ריק, נשמר שם המטפל של השירות" />
+        </label>
         <div className="split-fields">
           <label>
             שם הלקוח
@@ -268,6 +352,56 @@ export function AdminServices() {
         </button>
         {notice ? <p>{notice}</p> : null}
       </form>
+      <form
+        className="panel form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const form = new FormData(event.currentTarget)
+          void adminFetch('/api/admin/appointments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              serviceId: form.get('serviceId'),
+              date: form.get('date'),
+              time: form.get('time'),
+              status: 'closed',
+              customerName: 'סגור',
+            }),
+          })
+            .then(() => {
+              event.currentTarget.reset()
+              setNotice('השעה נסגרה ללקוחות')
+              return load()
+            })
+            .catch((reason) => setError(reason instanceof Error ? reason.message : 'סגירת השעה נכשלה'))
+        }}
+      >
+        <h2>סגירת שעה</h2>
+        <p className="muted">השעה נתפסת ולא תופיע ללקוחות. אפשר לפתוח אותה שוב מהיומן.</p>
+        <label>
+          שירות
+          <select name="serviceId" required>
+            {services.map((service) => (
+              <option key={service.id} value={service.id}>
+                {service.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="split-fields">
+          <label>
+            תאריך
+            <input name="date" type="date" required />
+          </label>
+          <label>
+            שעה
+            <input name="time" type="time" required />
+          </label>
+        </div>
+        <button className="btn secondary" type="submit">
+          סגירת השעה
+        </button>
+      </form>
       <h2>תורים שנקבעו</h2>
       <div className="stack-list">
         {appointments.map((item) => (
@@ -278,6 +412,7 @@ export function AdminServices() {
               </strong>
               <p className="muted">
                 {item.date} {item.time}
+                {item.therapist ? ` · ${item.therapist}` : ''}
               </p>
             </div>
             <div className="split-fields">
@@ -317,6 +452,7 @@ export function AdminServices() {
               <option value="booked">נקבע</option>
               <option value="done">בוצע</option>
               <option value="cancelled">בוטל</option>
+              <option value="closed">סגור</option>
             </select>
             <button
               type="button"
@@ -433,30 +569,71 @@ export function AdminCategories() {
 export function AdminClub() {
   const [members, setMembers] = useState<Member[]>([])
   const [mail, setMail] = useState<Mail[]>([])
+  const [percent, setPercent] = useState(10)
+
+  function loadMembers() {
+    void adminFetch<Member[]>('/api/admin/customers').then(setMembers).catch(() => setMembers([]))
+  }
 
   useEffect(() => {
-    void adminFetch<Member[]>('/api/admin/customers').then(setMembers).catch(() => setMembers([]))
+    loadMembers()
     void adminFetch<Mail[]>('/api/admin/mail').then(setMail).catch(() => setMail([]))
   }, [])
 
   return (
     <div>
-      <h1>מועדון לקוחות</h1>
-      <p className="muted">אופן הצבירה, הנקודות או האחוז לקנייה הבאה נקבעים במסך ההגדרות.</p>
-      <div className="admin-table">
+      <div className="section-head">
+        <h1>מועדון לקוחות</h1>
+        <label className="month-pick">
+          אחוז לקופון חדש
+          <input type="number" min={1} max={100} value={percent} onChange={(event) => setPercent(Number(event.target.value))} />
+        </label>
+      </div>
+      <p className="muted">כל כרטיס מראה מי הלקוח, מה מגיע לו, קופון אישי, ושליחת הודעה לוואטסאפ. הנקודות והאחוז הקבוע נקבעים בהגדרות.</p>
+      <div className="club-board">
         {members.length === 0 ? <p>עדיין אין לקוחות רשומים.</p> : null}
         {members.map((member) => (
-          <article key={member.id}>
-            <div>
+          <article key={member.id} className="club-card">
+            <header>
               <strong>{member.name}</strong>
-              <p className="muted">
-                {member.email} · {member.phone}
-                {member.birthday ? ` · יום הולדת ${member.birthday}` : ''}
-                {member.city ? ` · ${member.city}` : ''}
-              </p>
+              <span>{member.city || 'ללא עיר'}</span>
+            </header>
+            <p>{member.phone}</p>
+            <p className="muted">{member.email}</p>
+            <p className="muted">{member.birthday ? `יום הולדת ${member.birthday}` : 'ללא יום הולדת'}</p>
+            <div className="club-entitlement">
+              <span>{member.points} נקודות</span>
+              <span>{member.nextPercent ? `${member.nextPercent}% לקנייה הבאה` : 'אין אחוז ממתין'}</span>
             </div>
-            <span>{member.points} נקודות</span>
-            <span>{member.nextPercent ? `${member.nextPercent}% לקנייה הבאה` : 'בלי אחוז ממתין'}</span>
+            <p>{member.couponCode ? `קופון ${member.couponCode} · ${member.couponPercent}%` : 'אין קופון אישי'}</p>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  void adminFetch(`/api/admin/customers/${member.id}/coupon`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ percent }),
+                  }).then(loadMembers)
+                }}
+              >
+                הפקת קופון
+              </button>
+              <a
+                className="btn secondary"
+                href={waLink(
+                  member.phone,
+                  member.couponCode
+                    ? `שלום ${member.name}, קופון אישי ${member.couponCode} להנחה של ${member.couponPercent}% ב-PRO PHARM.`
+                    : `שלום ${member.name}, כאן PRO PHARM.`,
+                )}
+                target="_blank"
+                rel="noreferrer"
+              >
+                שליחת הודעה
+              </a>
+            </div>
           </article>
         ))}
       </div>

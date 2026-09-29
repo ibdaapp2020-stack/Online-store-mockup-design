@@ -1,22 +1,21 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useTitle } from '../components/ui'
 
-type StaffUser = { id: string; name: string; username: string }
 type Punch = { kind: string; at: string; lat: number | null; lng: number | null; note?: string }
 type Shift = { inAt: string; outAt: string; minutes: number }
 type WorkDay = { date: string; minutes: number; shifts: Shift[] }
-type Correction = { id: string; date: string; kind: string; requestedAt: string; note: string; status: string }
 type StaffState = {
-  employee: StaffUser
+  employee: { id: string; name: string; username: string }
   last: Punch | null
   month: string
   days: WorkDay[]
   totalMinutes: number
   punches: Punch[]
   remind: boolean
-  corrections: Correction[]
+  openShift: { at: string } | null
 }
+
+const WEEK = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש']
 
 async function staffFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: 'include', ...init })
@@ -36,242 +35,195 @@ function locate(): Promise<{ lat: number; lng: number } | null> {
   })
 }
 
+function clock(iso: string) {
+  return new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' })
+}
+
+function weekday(date: string) {
+  const day = new Date(`${date}T12:00:00+03:00`).getUTCDay()
+  return WEEK[day] ?? ''
+}
+
 function hoursLabel(minutes: number) {
   const whole = Math.max(0, Math.round(minutes))
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }
 
-export function StaffPage({ embedded = false }: { embedded?: boolean }) {
+export function StaffPage({ embedded = false, onLeave }: { embedded?: boolean; onLeave?: () => void }) {
   useTitle(embedded ? '' : 'נוכחות')
-  const [session, setSession] = useState<StaffState | null>(null)
+  const [state, setState] = useState<StaffState | null>(null)
+  const [screen, setScreen] = useState<'punch' | 'sheet'>('punch')
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [error, setError] = useState('')
-  const [note, setNote] = useState('')
-  const [noteOpen, setNoteOpen] = useState(false)
+  const [now, setNow] = useState(() => new Date())
+  const [noteFor, setNoteFor] = useState<string | null>(null)
+  const [noteTime, setNoteTime] = useState('09:00')
+  const [noteText, setNoteText] = useState('')
 
   async function load(nextMonth = month) {
     const data = await staffFetch<StaffState>(`/api/staff/me?month=${nextMonth}`)
-    setSession(data)
+    setState(data)
+    setError('')
   }
 
   useEffect(() => {
-    void load(month).catch((reason) => {
-      const message = reason instanceof Error ? reason.message : ''
-      if (message.includes('נדרשת')) setSession(null)
-    })
+    void load(month).catch(() => setState(null))
   }, [month])
 
-  async function onLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    const form = new FormData(event.currentTarget)
-    try {
-      await staffFetch('/api/staff/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.fromEntries(form.entries())),
-      })
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'הכניסה נכשלה')
-    }
-  }
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   async function punch(kind: 'in' | 'out') {
-    setNote('מאתר את המיקום...')
-    const point = await locate()
-    await staffFetch('/api/staff/punch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, lat: point?.lat, lng: point?.lng }),
-    })
-    setNote(point ? 'הדיווח נשמר עם מיקום.' : 'הדיווח נשמר בלי מיקום. צריך לאשר גישה למיקום בדפדפן.')
-    await load()
-  }
-
-  async function correct(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
     setError('')
-    const form = new FormData(event.currentTarget)
+    const point = await locate()
     try {
-      await staffFetch('/api/staff/corrections', {
+      await staffFetch('/api/staff/punch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.fromEntries(form.entries())),
+        body: JSON.stringify({ kind, lat: point?.lat, lng: point?.lng }),
       })
-      event.currentTarget.reset()
-      setNote('בקשת התיקון נשלחה למנהל.')
       await load()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'השליחה נכשלה')
+      setError(reason instanceof Error ? reason.message : 'הדיווח נכשל')
     }
   }
 
+  async function sendNote(event: FormEvent) {
+    event.preventDefault()
+    if (!noteFor) return
+    setError('')
+    try {
+      await staffFetch('/api/staff/punch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'note', date: noteFor, time: noteTime, note: noteText.trim() || `שעה נכונה ${noteTime}` }),
+      })
+      setNoteFor(null)
+      setNoteText('')
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'ההערה לא נשלחה')
+    }
+  }
+
+  async function logout() {
+    await fetch('/api/staff/logout', { method: 'POST', credentials: 'include' })
+    onLeave?.()
+  }
+
+  if (!state) return <p className="muted">טוען את דיווח הנוכחות...</p>
+
+  const today = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' })
+  const todayPunches = (state.punches ?? []).filter((item) => item.at.slice(0, 10) === today || new Date(item.at).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }) === today)
+
   return (
-    <div className={embedded ? 'embedded-staff' : 'staff-page'}>
-      <div className="panel form">
-        {embedded ? null : <img className="admin-logo" src="/logo.jpg" alt="PRO PHARM" />}
-        <h1>דיווח נוכחות</h1>
-        {session ? (
-          <>
-            <p>שלום {session.employee.name}</p>
-            <p className="muted">המיקום נשמר רק ברגע דיווח כניסה או יציאה, אחרי אישור בדפדפן.</p>
-            {session.remind ? (
-              <p className="reminder">עברו יותר מ-30 דקות מאז דיווח הכניסה. אם השעה לא מדויקת, שלחו תיקון למנהל.</p>
-            ) : null}
-            {session.last ? (
-              <p>
-                דיווח אחרון: {session.last.kind === 'in' ? 'כניסה' : session.last.kind === 'note' ? 'הערה' : 'יציאה'} · {new Date(session.last.at).toLocaleString('he-IL')}
+    <div className="attendance">
+      <div className="section-head">
+        <h1>{state.employee.name}</h1>
+        <button type="button" className="text-btn" onClick={() => void logout()}>
+          יציאה
+        </button>
+      </div>
+      <div className="choice-row">
+        <button type="button" className={screen === 'punch' ? 'choice on' : 'choice'} onClick={() => setScreen('punch')}>
+          דיווח
+        </button>
+        <button type="button" className={screen === 'sheet' ? 'choice on' : 'choice'} onClick={() => setScreen('sheet')}>
+          גיליון נוכחות
+        </button>
+      </div>
+      {state.remind ? <p className="reminder">עברה חצי שעה מהכניסה. אם סיימת, דווח יציאה.</p> : null}
+      {error ? <p className="form-errors">{error}</p> : null}
+
+      {screen === 'punch' ? (
+        <section className="punch-screen">
+          <div className="punch-log">
+            {todayPunches.length === 0 ? <p className="muted">עדיין אין דיווח היום</p> : null}
+            {todayPunches.map((item) => (
+              <p key={`${item.kind}-${item.at}`}>
+                <strong>{clock(item.at)}</strong>
+                <span>{item.kind === 'in' ? 'כניסה' : item.kind === 'out' ? 'יציאה' : 'הערה'}</span>
+                {item.lat != null ? <span className="pin" aria-hidden="true" /> : null}
               </p>
-            ) : (
-              <p className="muted">עדיין אין דיווח.</p>
-            )}
-            <button className="btn" type="button" onClick={() => void punch('in')}>
-              דיווח כניסה
-            </button>
-            <button className="btn secondary" type="button" onClick={() => void punch('out')}>
-              דיווח יציאה
-            </button>
-            <button className="text-btn" type="button" onClick={() => setNoteOpen((open) => !open)}>
-              הערה
-            </button>
-            {noteOpen ? (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  const form = new FormData(event.currentTarget)
-                  void staffFetch('/api/staff/punch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ kind: 'note', date: form.get('date'), time: form.get('time'), note: form.get('note') }),
-                  }).then(async () => {
-                    setNote('ההערה נשמרה ומופיעה למנהל.')
-                    setNoteOpen(false)
-                    await load()
-                  })
-                }}
-              >
-                <div className="split-fields">
-                  <label>
-                    תאריך
-                    <input name="date" type="date" />
-                  </label>
-                  <label>
-                    השעה הנכונה
-                    <input name="time" type="time" />
-                  </label>
-                </div>
-                <label>
-                  הערה
-                  <textarea name="note" required placeholder="השעה הנכונה או כל הערה אחרת" />
-                </label>
-                <button className="btn" type="submit">
-                  שמירת הערה
-                </button>
-              </form>
-            ) : null}
-            {note ? <p>{note}</p> : null}
-            <label className="month-pick">
-              חודש
-              <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-            </label>
-            <p>סה״כ החודש: {hoursLabel(session.totalMinutes)}</p>
-            <div className="stack-list">
-              {session.days.length === 0 ? <p className="muted">אין שעות סגורות בחודש הזה.</p> : null}
-              {session.days.map((day) => (
-                <article key={day.date}>
-                  <strong>{day.date}</strong>
-                  <span>{hoursLabel(day.minutes)}</span>
-                  <p className="muted">
-                    {day.shifts
-                      .map(
-                        (shift) =>
-                          `${new Date(shift.inAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}–${new Date(shift.outAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`,
-                      )
-                      .join(' · ')}
-                  </p>
-                </article>
-              ))}
-            </div>
-            <h2>היסטוריית דיווחים</h2>
-            <div className="stack-list">
-              {session.punches.map((punch) => (
-                <article key={punch.at}>
-                  <strong>{punch.kind === 'in' ? 'כניסה' : punch.kind === 'out' ? 'יציאה' : 'הערה'}</strong>
-                  <span>{new Date(punch.at).toLocaleString('he-IL')}</span>
-                  {punch.note ? <p className="muted">{punch.note}</p> : null}
-                </article>
-              ))}
-            </div>
-            <h2>תיקון דיווח למנהל</h2>
-            <form onSubmit={correct}>
-              <div className="split-fields">
-                <label>
-                  תאריך
-                  <input name="date" type="date" required />
-                </label>
-                <label>
-                  שעה
-                  <input name="time" type="time" required />
-                </label>
-              </div>
-              <label>
-                סוג
-                <select name="kind" defaultValue="in">
-                  <option value="in">כניסה</option>
-                  <option value="out">יציאה</option>
-                </select>
-              </label>
-              <label>
-                הסבר
-                <textarea name="note" required placeholder="למשל: נכנסתי למשמרת ורק אחרי חצי שעה דיווחתי" />
-              </label>
-              {error ? <p className="form-errors">{error}</p> : null}
-              <button className="btn secondary" type="submit">
-                שליחה למנהל
-              </button>
-            </form>
-            <h2>הבקשות שלי</h2>
-            <div className="stack-list">
-              {session.corrections.length === 0 ? <p className="muted">עדיין אין בקשות.</p> : null}
-              {session.corrections.map((item) => (
-                <article key={item.id}>
-                  <strong>
-                    {item.kind === 'in' ? 'כניסה' : 'יציאה'} · {item.date}
-                  </strong>
-                  <span>{item.status === 'approved' ? 'אושר' : item.status === 'rejected' ? 'נדחה' : 'ממתין'}</span>
-                  <p className="muted">{item.note}</p>
-                </article>
-              ))}
-            </div>
-            <button
-              className="text-btn"
-              type="button"
-              onClick={() => {
-                void staffFetch('/api/staff/logout', { method: 'POST' }).then(() => setSession(null))
-              }}
-            >
-              יציאה מהחשבון
-            </button>
-          </>
-        ) : (
-          <form onSubmit={onLogin}>
-            <label>
-              שם משתמש
-              <input name="username" autoComplete="username" required />
-            </label>
-            <label>
-              סיסמה
-              <input name="password" type="password" autoComplete="current-password" required />
-            </label>
-            {error ? <p className="form-errors">{error}</p> : null}
-            <button className="btn" type="submit">
+            ))}
+          </div>
+          <div className="punch-orbs">
+            <button type="button" className="punch-orb in" onClick={() => void punch('in')}>
               כניסה
             </button>
-          </form>
-        )}
-        <Link to="/">חזרה לחנות</Link>
-      </div>
+            <button type="button" className="punch-orb out" onClick={() => void punch('out')}>
+              יציאה
+            </button>
+          </div>
+          <div className="punch-foot">
+            <strong>{now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</strong>
+            <span className="pin" aria-label="מיקום נשמר רק בזמן הדיווח" />
+          </div>
+        </section>
+      ) : (
+        <section className="sheet-screen">
+          <label className="month-pick">
+            חודש
+            <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+          </label>
+          <p className="muted">סה״כ {hoursLabel(state.totalMinutes)} בחודש. הערה נשלחת למנהל ומופיעה בהיסטוריה.</p>
+          <div className="sheet-table">
+            <div className="sheet-head">
+              <span>יום</span>
+              <span>תאריך</span>
+              <span>כניסה</span>
+              <span>יציאה</span>
+              <span>פעילות</span>
+            </div>
+            {state.days.length === 0 && !state.openShift ? <p className="muted">אין דיווחים בחודש הזה.</p> : null}
+            {state.days.map((day) => {
+              const shift = day.shifts[0]
+              const notes = (state.punches ?? []).filter((item) => item.kind === 'note' && item.at.startsWith(day.date))
+              return (
+                <div className="sheet-row" key={day.date}>
+                  <span>{weekday(day.date)}</span>
+                  <span>{day.date.slice(8)}/{day.date.slice(5, 7)}</span>
+                  <span>{shift ? clock(shift.inAt) : ''}</span>
+                  <span>{shift ? clock(shift.outAt) : ''}</span>
+                  <button
+                    type="button"
+                    className="text-btn"
+                    onClick={() => {
+                      setNoteFor(day.date)
+                      setNoteTime(shift ? clock(shift.inAt) : '09:00')
+                      setNoteText('')
+                    }}
+                  >
+                    הערה{notes.length ? ` (${notes.length})` : ''}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {noteFor ? (
+        <form className="note-dialog" onSubmit={sendNote}>
+          <h2>הערה</h2>
+          <label>
+            שעה
+            <input type="time" value={noteTime} onChange={(event) => setNoteTime(event.target.value)} required />
+          </label>
+          <label>
+            פירוט
+            <input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="השעה הנכונה או הסבר" />
+          </label>
+          <button className="btn" type="submit">
+            אישור
+          </button>
+          <button type="button" className="text-btn" onClick={() => setNoteFor(null)}>
+            ביטול
+          </button>
+        </form>
+      ) : null}
     </div>
   )
 }

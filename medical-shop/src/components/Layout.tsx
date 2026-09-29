@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PICKUP } from '../pickup'
+import { money } from '../pricing'
 import { useStore } from '../store'
 
 export function Layout() {
-  const { cartCount, toast, settings } = useStore()
+  const { cartCount, totals, toast, settings } = useStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [query, setQuery] = useState('')
@@ -51,6 +52,7 @@ export function Layout() {
               <NavLink to="/account">אזור אישי</NavLink>
             </nav>
             <NavLink to="/cart" className="cart-link">
+              <span className="cart-sum">{money(totals.total)}</span>
               סל
               <span className="cart-count">{cartCount}</span>
             </NavLink>

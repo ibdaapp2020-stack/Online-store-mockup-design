@@ -47,7 +47,7 @@ type StoreValue = {
   addToCart: (productId: string, qty?: number, options?: { size?: string; color?: string; other?: string }) => void
   setQty: (key: string, qty: number) => void
   removeFromCart: (key: string) => void
-  applyCoupon: (code: string) => boolean
+  applyCoupon: (code: string) => Promise<boolean>
   clearCoupon: () => void
   placeOrder: (customer: Customer) => Promise<string | null>
   findOrder: (id: string) => Promise<Order | null>
@@ -73,6 +73,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartLine[]>([])
   const [recentOrders, setRecentOrders] = useState<Order[]>(() => readJson<Order[]>(RECENT_KEY) ?? [])
   const [coupon, setCoupon] = useState<string | null>(null)
+  const [extraPercent, setExtraPercent] = useState(0)
   const [toast, setToast] = useState('')
   const toastTimer = useRef<number | null>(null)
 
@@ -88,7 +89,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return stored.filter((line) => data.products.some((product) => product.id === line.productId && product.stock > 0))
     })
     const savedCoupon = localStorage.getItem(COUPON_KEY)
-    if (savedCoupon && savedCoupon.toUpperCase() === data.settings.couponCode.toUpperCase()) setCoupon(data.settings.couponCode)
+    const savedPercent = Number(localStorage.getItem('medica-coupon-percent') || 0)
+    if (savedCoupon && (savedCoupon.toUpperCase() === data.settings.couponCode.toUpperCase() || savedPercent > 0)) {
+      setCoupon(savedCoupon)
+      setExtraPercent(savedCoupon.toUpperCase() === data.settings.couponCode.toUpperCase() ? 0 : savedPercent)
+    }
   }
 
   useEffect(() => {
@@ -111,7 +116,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (coupon) localStorage.setItem(COUPON_KEY, coupon)
     else localStorage.removeItem(COUPON_KEY)
-  }, [coupon])
+    if (extraPercent > 0) localStorage.setItem('medica-coupon-percent', String(extraPercent))
+    else localStorage.removeItem('medica-coupon-percent')
+  }, [coupon, extraPercent])
 
   function notify(message: string) {
     setToast(message)
@@ -128,15 +135,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [cart, products],
   )
 
-  const totals = useMemo(
-    () =>
-      quote(
-        detailed.reduce((sum, line) => sum + line.product.price * line.qty, 0),
-        coupon?.toUpperCase() === settings.couponCode.toUpperCase(),
-        settings,
-      ),
-    [detailed, coupon, settings],
-  )
+  const totals = useMemo(() => {
+    const personal = Boolean(coupon) && extraPercent > 0 && coupon?.toUpperCase() !== settings.couponCode.toUpperCase()
+    return quote(
+      detailed.reduce((sum, line) => sum + line.product.price * line.qty, 0),
+      Boolean(coupon) && (coupon?.toUpperCase() === settings.couponCode.toUpperCase() || personal),
+      personal ? { ...settings, couponPercent: extraPercent } : settings,
+    )
+  }, [detailed, coupon, settings, extraPercent])
 
   const cartCount = detailed.reduce((sum, line) => sum + line.qty, 0)
 
@@ -173,18 +179,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color, line.other) !== key))
   }
 
-  function applyCoupon(code: string) {
-    if (code.trim().toUpperCase() === settings.couponCode.toUpperCase()) {
+  async function applyCoupon(code: string) {
+    const normalized = code.trim().toUpperCase()
+    if (normalized === settings.couponCode.toUpperCase()) {
       setCoupon(settings.couponCode)
+      setExtraPercent(0)
       notify(`קופון ${settings.couponCode} הופעל`)
       return true
     }
-    notify(`הקוד לא מוכר. הקוד הפעיל: ${settings.couponCode}`)
+    const response = await fetch('/api/account/coupon', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: normalized }),
+    })
+    if (response.ok) {
+      const data = (await response.json()) as { code: string; percent: number }
+      setCoupon(data.code)
+      setExtraPercent(data.percent)
+      notify(`קופון ${data.code} הופעל`)
+      return true
+    }
+    notify('הקוד לא מוכר, או שהוא שייך לחשבון אחר. צריך להיות מחוברים כלקוח.')
     return false
   }
 
   function clearCoupon() {
     setCoupon(null)
+    setExtraPercent(0)
   }
 
   async function placeOrder(customer: Customer) {
@@ -207,6 +229,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRecentOrders((prev) => [data, ...prev.filter((order) => order.id !== data.id)])
     setCart([])
     setCoupon(null)
+    setExtraPercent(0)
     await refreshCatalog()
     return data.id
   }

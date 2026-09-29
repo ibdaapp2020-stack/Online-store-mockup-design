@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTitle } from '../components/ui'
 import { formatDate, money } from '../pricing'
 import { useStore } from '../store'
@@ -16,6 +16,8 @@ type Member = {
   address: string
   points: number
   nextPercent: number
+  couponCode: string
+  couponPercent: number
 }
 
 type Service = {
@@ -25,18 +27,20 @@ type Service = {
   openTime: string
   closeTime: string
   slotMinutes: number
+  therapist: string
 }
 
 type Appointment = {
   id: string
   serviceName: string
+  therapist: string
   date: string
   time: string
   status: string
 }
 
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
-const STATUS: Record<string, string> = { booked: 'נקבע', done: 'בוצע', cancelled: 'בוטל' }
+const STATUS: Record<string, string> = { booked: 'נקבע', done: 'בוצע', cancelled: 'בוטל', closed: 'סגור' }
 
 async function accountFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: 'include', ...init })
@@ -47,7 +51,9 @@ async function accountFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function AccountPage() {
   const { settings } = useStore()
+  const navigate = useNavigate()
   const [member, setMember] = useState<Member | null>(null)
+  const [who, setWho] = useState<'' | 'staff' | 'customer'>('')
   const [orders, setOrders] = useState<Order[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [services, setServices] = useState<Service[]>([])
@@ -57,44 +63,29 @@ export function AccountPage() {
   const [date, setDate] = useState('')
   const [slots, setSlots] = useState<string[]>([])
   const [time, setTime] = useState('')
-  const [params, setParams] = useSearchParams()
-  const role = params.get('role') === 'staff' ? 'staff' : params.get('role') === 'admin' ? 'admin' : 'customer'
-  useTitle(role === 'staff' ? 'נוכחות' : role === 'admin' ? 'ניהול' : 'אזור אישי')
+  useTitle(who === 'staff' ? 'נוכחות' : who === 'customer' ? 'אזור אישי' : 'כניסה')
 
-  function setRole(next: 'customer' | 'staff' | 'admin') {
-    const query = new URLSearchParams(params)
-    if (next === 'customer') query.delete('role')
-    else query.set('role', next)
-    setParams(query)
-  }
-
-  const gate = (
-    <div className="role-bar">
-      <button type="button" className={role === 'customer' ? 'chip on' : 'chip'} onClick={() => setRole('customer')}>
-        לקוח
-      </button>
-      <button type="button" className={role === 'staff' ? 'chip on' : 'chip'} onClick={() => setRole('staff')}>
-        עובד
-      </button>
-      <button type="button" className={role === 'admin' ? 'chip on' : 'chip'} onClick={() => setRole('admin')}>
-        ניהול
-      </button>
-    </div>
-  )
-
-  async function load() {
+  async function loadCustomer() {
     const data = await accountFetch<{ customer: Member; orders: Order[]; appointments: Appointment[] }>('/api/account/me')
     setMember(data.customer)
     setOrders(data.orders)
     setAppointments(data.appointments)
+    setWho('customer')
     const list = await accountFetch<Service[]>('/api/services')
     setServices(list)
     setServiceId((current) => current || list[0]?.id || '')
   }
 
   useEffect(() => {
-    void load().catch(() => setMember(null))
-  }, [])
+    void fetch('/api/session', { credentials: 'include' })
+      .then((response) => response.json())
+      .then((data: { role?: string }) => {
+        if (data.role === 'admin') navigate('/admin')
+        else if (data.role === 'staff') setWho('staff')
+        else if (data.role === 'customer') void loadCustomer()
+      })
+      .catch(() => setWho(''))
+  }, [navigate])
 
   useEffect(() => {
     if (!serviceId || !date) {
@@ -113,14 +104,24 @@ export function AccountPage() {
     event.preventDefault()
     setError('')
     const form = new FormData(event.currentTarget)
-    const body = Object.fromEntries(form.entries())
     try {
-      await accountFetch(mode === 'login' ? '/api/account/login' : '/api/account/register', {
+      if (mode === 'register') {
+        await accountFetch('/api/account/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.fromEntries(form.entries())),
+        })
+        await loadCustomer()
+        return
+      }
+      const data = await accountFetch<{ role: string }>('/api/session/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ login: form.get('login'), password: form.get('password') }),
       })
-      await load()
+      if (data.role === 'admin') navigate('/admin')
+      else if (data.role === 'staff') setWho('staff')
+      else await loadCustomer()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'הכניסה נכשלה')
     }
@@ -135,42 +136,27 @@ export function AccountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serviceId, date, time }),
       })
-      await load()
+      await loadCustomer()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'לא ניתן לקבוע תור')
     }
   }
 
-  if (role === 'staff') {
-    return (
-      <div>
-        {gate}
-        <StaffPage embedded />
-      </div>
-    )
-  }
-
-  if (role === 'admin') {
-    return (
-      <div>
-        {gate}
-        <AdminGate />
-      </div>
-    )
+  if (who === 'staff') {
+    return <StaffPage embedded onLeave={() => setWho('')} />
   }
 
   if (!member) {
     return (
       <div className="summary wide panel">
-        {gate}
-        <h1>אזור אישי</h1>
-        <p className="muted">כאן רואים את מועדון הלקוחות וקובעים תור לשירותי החנות.</p>
+        <h1>כניסה</h1>
+        <p className="muted">שם משתמש וסיסמה. המערכת מזהה אם מדובר בבעלים, בלקוח או בעובד.</p>
         <div className="choice-row">
           <button type="button" className={mode === 'login' ? 'choice on' : 'choice'} onClick={() => setMode('login')}>
             כניסה
           </button>
           <button type="button" className={mode === 'register' ? 'choice on' : 'choice'} onClick={() => setMode('register')}>
-            הרשמה
+            הרשמת לקוח
           </button>
         </div>
         <form className="form" onSubmit={onAuth}>
@@ -198,15 +184,20 @@ export function AccountPage() {
                   <input name="address" required />
                 </label>
               </div>
+              <label>
+                אימייל
+                <input name="email" type="email" required />
+              </label>
             </>
-          ) : null}
-          <label>
-            אימייל
-            <input name="email" type="email" required />
-          </label>
+          ) : (
+            <label>
+              שם משתמש או אימייל
+              <input name="login" autoComplete="username" required />
+            </label>
+          )}
           <label>
             סיסמה
-            <input name="password" type="password" minLength={4} required />
+            <input name="password" type="password" minLength={4} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required />
           </label>
           {error ? <p className="form-errors">{error}</p> : null}
           <button className="btn" type="submit">
@@ -221,14 +212,16 @@ export function AccountPage() {
 
   return (
     <div>
-      {gate}
       <div className="section-head">
         <h1>שלום {member.name}</h1>
         <button
           type="button"
           className="text-btn"
           onClick={() => {
-            void accountFetch('/api/account/logout', { method: 'POST' }).then(() => setMember(null))
+            void accountFetch('/api/account/logout', { method: 'POST' }).then(() => {
+              setMember(null)
+              setWho('')
+            })
           }}
         >
           יציאה
@@ -251,8 +244,17 @@ export function AccountPage() {
               <p className="muted">נקודות שנצברו</p>
             </>
           )}
+          {member.couponCode ? (
+            <p>
+              קופון אישי <strong>{member.couponCode}</strong> · {member.couponPercent}%
+            </p>
+          ) : null}
           {member.birthday ? <p className="muted">יום הולדת {member.birthday}</p> : null}
-          {member.city ? <p className="muted">{member.address}, {member.city}</p> : null}
+          {member.city ? (
+            <p className="muted">
+              {member.address}, {member.city}
+            </p>
+          ) : null}
         </article>
         <form className="panel form" onSubmit={book}>
           <h2>קביעת תור</h2>
@@ -262,12 +264,14 @@ export function AccountPage() {
               {services.map((service) => (
                 <option key={service.id} value={service.id}>
                   {service.name}
+                  {service.therapist ? ` · ${service.therapist}` : ''}
                 </option>
               ))}
             </select>
           </label>
           {selected ? (
             <p className="muted">
+              {selected.therapist ? `מטפל: ${selected.therapist} · ` : ''}
               {selected.days.map((day) => DAY[day]).join(', ')} · {selected.openTime}–{selected.closeTime}
             </p>
           ) : null}
@@ -298,6 +302,7 @@ export function AccountPage() {
               <strong>{item.serviceName}</strong>
               <span>
                 {item.date} · {item.time}
+                {item.therapist ? ` · ${item.therapist}` : ''}
               </span>
               <span>{STATUS[item.status] ?? item.status}</span>
             </article>
@@ -321,66 +326,5 @@ export function AccountPage() {
         </div>
       </section>
     </div>
-  )
-}
-
-function AdminGate() {
-  const navigate = useNavigate()
-  const [open, setOpen] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    void fetch('/api/admin/me', { credentials: 'include' }).then((response) => setOpen(response.ok))
-  }, [])
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    const password = String(new FormData(event.currentTarget).get('password') || '')
-    const response = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ password }),
-    })
-    if (!response.ok) {
-      setError('סיסמה שגויה')
-      return
-    }
-    navigate('/admin')
-  }
-
-  if (open) {
-    return (
-      <div className="panel form">
-        <h1>ניהול החנות</h1>
-        <Link className="btn" to="/admin">
-          ללוח הניהול
-        </Link>
-        <button
-          className="text-btn"
-          type="button"
-          onClick={() => {
-            void fetch('/api/admin/logout', { method: 'POST', credentials: 'include' }).then(() => setOpen(false))
-          }}
-        >
-          התנתקות
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <form className="panel form" onSubmit={onSubmit}>
-      <h1>כניסת ניהול</h1>
-      <label>
-        סיסמה
-        <input name="password" type="password" required />
-      </label>
-      {error ? <p className="form-errors">{error}</p> : null}
-      <button className="btn" type="submit">
-        כניסה
-      </button>
-    </form>
   )
 }
