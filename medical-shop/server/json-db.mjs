@@ -19,6 +19,7 @@ export function createJsonDb(file, fallback) {
   state.employees ||= []
   state.staff_sessions ||= []
   state.attendance ||= []
+  state.corrections ||= []
   state.mail_log ||= []
   let snapshot = null
 
@@ -61,6 +62,7 @@ function byId(rows, id) {
 function readOne(sql, args, state) {
   if (sql.startsWith('SELECT token, customer_id FROM customer_sessions')) return state.customer_sessions.find((row) => row.token === args[0])
   if (sql.startsWith('SELECT token, employee_id FROM staff_sessions')) return state.staff_sessions.find((row) => row.token === args[0])
+  if (sql.startsWith('SELECT * FROM corrections WHERE id')) return byId(state.corrections, args[0])
   if (sql.startsWith('SELECT * FROM categories WHERE id')) return byId(state.categories, args[0])
   if (sql.startsWith('SELECT * FROM customers WHERE email')) return state.customers.find((row) => row.email === args[0])
   if (sql.startsWith('SELECT * FROM customers WHERE id')) return byId(state.customers, args[0])
@@ -108,6 +110,7 @@ function readMany(sql, args, state) {
   if (sql.startsWith('SELECT * FROM customers')) return [...state.customers]
   if (sql.startsWith('SELECT * FROM employees')) return [...state.employees]
   if (sql.startsWith('SELECT * FROM attendance')) return [...state.attendance]
+  if (sql.startsWith('SELECT * FROM corrections')) return [...(state.corrections || [])]
   if (sql.startsWith('SELECT * FROM mail_log')) return [...state.mail_log]
   if (sql.startsWith('SELECT id, name, blurb FROM categories')) {
     return [...state.categories].sort((a, b) => a.sort - b.sort).map(({ id, name, blurb }) => ({ id, name, blurb }))
@@ -273,6 +276,20 @@ function writeOne(sql, args, state) {
     })
     return
   }
+  if (sql.startsWith('UPDATE appointments SET service_id')) {
+    const appointment = byId(state.appointments, args[5])
+    if (!appointment) return
+    appointment.service_id = args[0]
+    appointment.customer_name = args[1]
+    appointment.date = args[2]
+    appointment.time = args[3]
+    appointment.status = args[4]
+    return
+  }
+  if (sql.startsWith('DELETE FROM appointments')) {
+    state.appointments = state.appointments.filter((row) => row.id !== args[0])
+    return
+  }
   if (sql.startsWith('UPDATE appointments SET status')) {
     const appointment = byId(state.appointments, args[1])
     if (appointment) appointment.status = args[0]
@@ -292,6 +309,34 @@ function writeOne(sql, args, state) {
   }
   if (sql.startsWith('DELETE FROM employees')) {
     state.employees = state.employees.filter((row) => row.id !== args[0])
+    return
+  }
+  if (sql.startsWith('UPDATE employees SET pay_mode')) {
+    const employee = byId(state.employees, args[3])
+    if (!employee) return
+    employee.pay_mode = args[0]
+    employee.hourly_rate = args[1]
+    employee.global_pay = args[2]
+    return
+  }
+  if (sql.startsWith('INSERT INTO corrections')) {
+    state.corrections ||= []
+    state.corrections.push({
+      id: args[0],
+      employee_id: args[1],
+      employee_name: args[2],
+      date: args[3],
+      kind: args[4],
+      requested_at: args[5],
+      note: args[6],
+      status: args[7],
+      created_at: args[8],
+    })
+    return
+  }
+  if (sql.startsWith('UPDATE corrections SET status')) {
+    const correction = byId(state.corrections || [], args[1])
+    if (correction) correction.status = args[0]
     return
   }
   if (sql.startsWith('INSERT INTO attendance')) {

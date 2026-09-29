@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hashPassword, mapOrder, verifyPassword } from './db.mjs'
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -22,6 +22,46 @@ export function asList(value) {
 
 function id(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`
+}
+
+function sessionSecret(db) {
+  const admin = db.prepare('SELECT password_hash FROM admin WHERE id = 1').get()
+  return admin?.password_hash || 'propharm-session'
+}
+
+export function signSession(db, role, extra = {}) {
+  const payload = Buffer.from(JSON.stringify({ role, exp: Date.now() + 14 * 24 * 60 * 60 * 1000, ...extra })).toString('base64url')
+  const sig = createHmac('sha256', sessionSecret(db)).update(payload).digest('base64url')
+  return `${payload}.${sig}`
+}
+
+export function readSession(db, token, role) {
+  const text = String(token || '')
+  const dot = text.lastIndexOf('.')
+  if (dot < 1) return null
+  const payload = text.slice(0, dot)
+  const sig = text.slice(dot + 1)
+  const expected = createHmac('sha256', sessionSecret(db)).update(payload).digest('base64url')
+  const left = Buffer.from(sig)
+  const right = Buffer.from(expected)
+  if (left.length !== right.length || !timingSafeEqual(left, right)) return null
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString())
+    if (data.role !== role || Number(data.exp) < Date.now()) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+function cookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: Boolean(process.env.VERCEL),
+    path: '/',
+    maxAge: 14 * 24 * 60 * 60 * 1000,
+  }
 }
 
 function todayJerusalem() {
@@ -129,19 +169,94 @@ function mapAppointment(row, services) {
 function customerFrom(req, db) {
   const token = req.cookies?.medica_customer
   if (!token) return null
-  const session = db.prepare('SELECT token, customer_id FROM customer_sessions WHERE token = ?').get(token)
-  if (!session) return null
-  return db.prepare('SELECT * FROM customers WHERE id = ?').get(session.customer_id)
+  const signed = readSession(db, token, 'customer')
+  const session = signed ? null : db.prepare('SELECT token, customer_id FROM customer_sessions WHERE token = ?').get(token)
+  const customerId = signed?.id || session?.customer_id
+  if (!customerId) return null
+  return db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId)
 }
 
 function staffFrom(req, db) {
   const token = req.cookies?.medica_staff
   if (!token) return null
-  const session = db.prepare('SELECT token, employee_id FROM staff_sessions WHERE token = ?').get(token)
-  if (!session) return null
-  const employee = db.prepare('SELECT * FROM employees WHERE id = ?').get(session.employee_id)
-  if (!employee || employee.active !== 1) return null
+  const signed = readSession(db, token, 'staff')
+  const session = signed ? null : db.prepare('SELECT token, employee_id FROM staff_sessions WHERE token = ?').get(token)
+  const employeeId = signed?.id || session?.employee_id
+  if (!employeeId) return null
+  const employee = db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId)
+  if (!employee || (employee.active !== 1 && employee.active !== true)) return null
   return employee
+}
+
+function jerusalemDate(iso) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date(iso))
+}
+
+function currentMonth() {
+  return todayJerusalem().slice(0, 7)
+}
+
+function summarizePunches(punches, month) {
+  const sorted = [...punches].sort((a, b) => String(a.at).localeCompare(String(b.at)))
+  const shifts = []
+  let open = null
+  for (const punch of sorted) {
+    if (punch.kind === 'in') open = punch
+    else if (punch.kind === 'out' && open) {
+      const span = Math.max(0, Math.round((new Date(punch.at).getTime() - new Date(open.at).getTime()) / 60000))
+      shifts.push({ inAt: open.at, outAt: punch.at, minutes: span, date: jerusalemDate(open.at) })
+      open = null
+    }
+  }
+  const days = new Map()
+  for (const shift of shifts.filter((item) => item.date.startsWith(month))) {
+    const day = days.get(shift.date) || { date: shift.date, minutes: 0, shifts: [] }
+    day.minutes += shift.minutes
+    day.shifts.push({ inAt: shift.inAt, outAt: shift.outAt, minutes: shift.minutes })
+    days.set(shift.date, day)
+  }
+  const listed = [...days.values()].sort((a, b) => a.date.localeCompare(b.date))
+  return {
+    days: listed,
+    totalMinutes: listed.reduce((sum, day) => sum + day.minutes, 0),
+    openShift: open ? { at: open.at } : null,
+    punches: sorted.filter((item) => jerusalemDate(item.at).startsWith(month)).reverse(),
+  }
+}
+
+function payOf(employee, totalMinutes) {
+  const payMode = employee.pay_mode === 'global' ? 'global' : 'hour'
+  const hourlyRate = Number(employee.hourly_rate) || 0
+  const globalPay = Number(employee.global_pay) || 0
+  const salary = payMode === 'global' ? globalPay : Math.round((totalMinutes / 60) * hourlyRate)
+  return { payMode, hourlyRate, globalPay, salary }
+}
+
+function mapCorrection(row) {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    employeeName: row.employee_name,
+    date: row.date,
+    kind: row.kind,
+    requestedAt: row.requested_at,
+    note: row.note,
+    status: row.status,
+    createdAt: row.created_at,
+  }
+}
+
+function mapEmployee(row) {
+  const pay = payOf(row, 0)
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    active: row.active === 1 || row.active === true,
+    payMode: pay.payMode,
+    hourlyRate: pay.hourlyRate,
+    globalPay: pay.globalPay,
+  }
 }
 
 function slotsFor(service, date, taken) {
@@ -218,6 +333,17 @@ function ensureSchema(db) {
       lat REAL,
       lng REAL
     )`,
+    `CREATE TABLE IF NOT EXISTS corrections (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      employee_name TEXT NOT NULL,
+      date TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      requested_at TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS mail_log (
       id TEXT PRIMARY KEY,
       order_id TEXT NOT NULL,
@@ -247,6 +373,13 @@ function ensureSchema(db) {
   for (const column of ["birthday TEXT NOT NULL DEFAULT ''", "city TEXT NOT NULL DEFAULT ''", "address TEXT NOT NULL DEFAULT ''"]) {
     try {
       db.exec(`ALTER TABLE customers ADD COLUMN ${column}`)
+    } catch {
+      /* column already exists */
+    }
+  }
+  for (const column of ["pay_mode TEXT NOT NULL DEFAULT 'hour'", 'hourly_rate REAL NOT NULL DEFAULT 0', 'global_pay REAL NOT NULL DEFAULT 0']) {
+    try {
+      db.exec(`ALTER TABLE employees ADD COLUMN ${column}`)
     } catch {
       /* column already exists */
     }
@@ -400,7 +533,11 @@ export async function settleClub(db, req, order, settings) {
 }
 
 function cookie(res, name, token) {
-  res.cookie(name, token, { httpOnly: true, sameSite: 'lax', path: '/' })
+  res.cookie(name, token, cookieOptions())
+}
+
+export function writeSessionCookie(res, name, token) {
+  cookie(res, name, token)
 }
 
 export function registerClub(app, { db, requireAdmin }) {
@@ -424,7 +561,7 @@ export function registerClub(app, { db, requireAdmin }) {
     db.prepare(
       'INSERT INTO customers (id, name, phone, email, password_hash, points, next_percent, created_at, birthday, city, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(customerId, name, phone, email, hashPassword(password), 0, 0, new Date().toISOString(), birthday, city, address)
-    const token = randomBytes(24).toString('hex')
+    const token = signSession(db, 'customer', { id: customerId })
     db.prepare('INSERT INTO customer_sessions (token, customer_id, created_at) VALUES (?, ?, ?)').run(token, customerId, new Date().toISOString())
     cookie(res, 'medica_customer', token)
     res.status(201).json(mapCustomer(db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId)))
@@ -436,7 +573,7 @@ export function registerClub(app, { db, requireAdmin }) {
     if (!row || !verifyPassword(String(req.body?.password ?? ''), row.password_hash)) {
       return res.status(401).json({ error: 'אימייל או סיסמה שגויים' })
     }
-    const token = randomBytes(24).toString('hex')
+    const token = signSession(db, 'customer', { id: row.id })
     db.prepare('INSERT INTO customer_sessions (token, customer_id, created_at) VALUES (?, ?, ?)').run(token, row.id, new Date().toISOString())
     cookie(res, 'medica_customer', token)
     res.json(mapCustomer(row))
@@ -536,10 +673,10 @@ export function registerClub(app, { db, requireAdmin }) {
   app.post('/api/staff/login', (req, res) => {
     const username = String(req.body?.username ?? '').trim().toLowerCase()
     const row = db.prepare('SELECT * FROM employees WHERE username = ?').get(username)
-    if (!row || row.active !== 1 || !verifyPassword(String(req.body?.password ?? ''), row.password_hash)) {
+    if (!row || (row.active !== 1 && row.active !== true) || !verifyPassword(String(req.body?.password ?? ''), row.password_hash)) {
       return res.status(401).json({ error: 'שם משתמש או סיסמה שגויים' })
     }
-    const token = randomBytes(24).toString('hex')
+    const token = signSession(db, 'staff', { id: row.id })
     db.prepare('INSERT INTO staff_sessions (token, employee_id, created_at) VALUES (?, ?, ?)').run(token, row.id, new Date().toISOString())
     cookie(res, 'medica_staff', token)
     res.json({ id: row.id, name: row.name, username: row.username })
@@ -559,10 +696,39 @@ export function registerClub(app, { db, requireAdmin }) {
       .all()
       .filter((item) => item.employee_id === row.id)
       .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : currentMonth()
+    const summary = summarizePunches(punches, month)
+    const last = punches[0] ? { kind: punches[0].kind, at: punches[0].at, lat: punches[0].lat, lng: punches[0].lng } : null
+    const corrections = db
+      .prepare('SELECT * FROM corrections')
+      .all()
+      .filter((item) => item.employee_id === row.id)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
     res.json({
       employee: { id: row.id, name: row.name, username: row.username },
-      last: punches[0] ? { kind: punches[0].kind, at: punches[0].at, lat: punches[0].lat, lng: punches[0].lng } : null,
+      last,
+      month,
+      ...summary,
+      remind: Boolean(last && last.kind === 'in' && Date.now() - new Date(last.at).getTime() >= 30 * 60 * 1000),
+      corrections: corrections.map(mapCorrection),
     })
+  })
+
+  app.post('/api/staff/corrections', (req, res) => {
+    const row = staffFrom(req, db)
+    if (!row) return res.status(401).json({ error: 'נדרשת כניסת עובד' })
+    const date = String(req.body?.date ?? '')
+    const kind = req.body?.kind === 'out' ? 'out' : 'in'
+    const time = String(req.body?.time ?? '')
+    const note = String(req.body?.note ?? '').trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || minutes(time) == null || !note) {
+      return res.status(400).json({ error: 'תאריך, שעה והסבר הם שדות חובה' })
+    }
+    const correctionId = id('fix')
+    db.prepare(
+      'INSERT INTO corrections (id, employee_id, employee_name, date, kind, requested_at, note, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(correctionId, row.id, row.name, date, kind, `${date}T${time}:00+03:00`, note, 'pending', new Date().toISOString())
+    res.status(201).json(mapCorrection(db.prepare('SELECT * FROM corrections WHERE id = ?').get(correctionId)))
   })
 
   app.post('/api/staff/punch', (req, res) => {
@@ -647,12 +813,71 @@ export function registerClub(app, { db, requireAdmin }) {
   })
 
   app.patch('/api/admin/appointments/:id', requireAdmin, (req, res) => {
-    const status = ['booked', 'done', 'cancelled'].includes(req.body?.status) ? req.body.status : ''
     const current = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id)
-    if (!current || !status) return res.status(400).json({ error: 'התור לא נמצא' })
-    db.prepare('UPDATE appointments SET status = ? WHERE id = ?').run(status, current.id)
+    if (!current) return res.status(404).json({ error: 'התור לא נמצא' })
+    const status = ['booked', 'done', 'cancelled'].includes(req.body?.status) ? req.body.status : current.status
+    const date = String(req.body?.date ?? current.date)
+    const time = String(req.body?.time ?? current.time)
+    const customerName = String(req.body?.customerName ?? current.customer_name).trim()
+    const serviceId = String(req.body?.serviceId ?? current.service_id)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || minutes(time) == null || !customerName) {
+      return res.status(400).json({ error: 'חסרים פרטי תור' })
+    }
+    db.prepare('UPDATE appointments SET service_id = ?, customer_name = ?, date = ?, time = ?, status = ? WHERE id = ?').run(
+      serviceId,
+      customerName,
+      date,
+      time,
+      status,
+      current.id,
+    )
     const services = db.prepare('SELECT * FROM services').all().map(mapService)
     res.json(mapAppointment(db.prepare('SELECT * FROM appointments WHERE id = ?').get(current.id), services))
+  })
+
+  app.post('/api/admin/appointments', requireAdmin, (req, res) => {
+    const service = db.prepare('SELECT * FROM services WHERE id = ?').get(String(req.body?.serviceId ?? ''))
+    const date = String(req.body?.date ?? '')
+    const time = String(req.body?.time ?? '')
+    const customerName = String(req.body?.customerName ?? '').trim()
+    const phone = String(req.body?.phone ?? '').trim()
+    if (!service || !/^\d{4}-\d{2}-\d{2}$/.test(date) || minutes(time) == null || !customerName || !phone) {
+      return res.status(400).json({ error: 'שירות, תאריך, שעה, שם וטלפון הם שדות חובה' })
+    }
+    const clash = db
+      .prepare('SELECT * FROM appointments')
+      .all()
+      .some((item) => item.service_id === service.id && item.date === date && item.time === time && item.status !== 'cancelled')
+    if (clash) return res.status(400).json({ error: 'השעה הזו כבר תפוסה בשירות הזה' })
+    let customerId = ''
+    let createdPassword = ''
+    if (req.body?.createCustomer) {
+      const email = String(req.body?.email ?? '').trim().toLowerCase()
+      const existing = email ? db.prepare('SELECT * FROM customers WHERE email = ?').get(email) : null
+      if (existing) customerId = existing.id
+      else {
+        customerId = id('cus')
+        createdPassword = String(req.body?.password ?? '').trim() || randomBytes(4).toString('hex')
+        const finalEmail = email || `walkin.${customerId}@propharm.shop`
+        db.prepare(
+          'INSERT INTO customers (id, name, phone, email, password_hash, points, next_percent, created_at, birthday, city, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(customerId, customerName, phone, finalEmail, hashPassword(createdPassword), 0, 0, new Date().toISOString(), '', '', '')
+      }
+    }
+    const appointmentId = id('apt')
+    db.prepare(
+      'INSERT INTO appointments (id, service_id, customer_id, customer_name, date, time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(appointmentId, service.id, customerId, customerName, date, time, 'booked', new Date().toISOString())
+    const services = db.prepare('SELECT * FROM services').all().map(mapService)
+    res.status(201).json({
+      ...mapAppointment(db.prepare('SELECT * FROM appointments WHERE id = ?').get(appointmentId), services),
+      createdPassword,
+    })
+  })
+
+  app.delete('/api/admin/appointments/:id', requireAdmin, (req, res) => {
+    db.prepare('DELETE FROM appointments WHERE id = ?').run(req.params.id)
+    res.json({ ok: true })
   })
 
   app.get('/api/admin/categories', requireAdmin, (_req, res) => {
@@ -691,7 +916,17 @@ export function registerClub(app, { db, requireAdmin }) {
   })
 
   app.get('/api/admin/employees', requireAdmin, (_req, res) => {
-    res.json(db.prepare('SELECT * FROM employees').all().map((row) => ({ id: row.id, name: row.name, username: row.username, active: row.active === 1 })))
+    res.json(db.prepare('SELECT * FROM employees').all().map(mapEmployee))
+  })
+
+  app.patch('/api/admin/employees/:id', requireAdmin, (req, res) => {
+    const current = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id)
+    if (!current) return res.status(404).json({ error: 'העובד לא נמצא' })
+    const payMode = req.body?.payMode === 'global' ? 'global' : 'hour'
+    const hourlyRate = Math.max(0, Number(req.body?.hourlyRate) || 0)
+    const globalPay = Math.max(0, Number(req.body?.globalPay) || 0)
+    db.prepare('UPDATE employees SET pay_mode = ?, hourly_rate = ?, global_pay = ? WHERE id = ?').run(payMode, hourlyRate, globalPay, current.id)
+    res.json(mapEmployee(db.prepare('SELECT * FROM employees WHERE id = ?').get(current.id)))
   })
 
   app.post('/api/admin/employees', requireAdmin, (req, res) => {
@@ -716,21 +951,39 @@ export function registerClub(app, { db, requireAdmin }) {
     res.json({ ok: true })
   })
 
-  app.get('/api/admin/attendance', requireAdmin, (_req, res) => {
-    res.json(
-      db
-        .prepare('SELECT * FROM attendance')
-        .all()
-        .sort((a, b) => String(b.at).localeCompare(String(a.at)))
-        .map((row) => ({
-          id: row.id,
-          employeeName: row.employee_name,
-          kind: row.kind,
-          at: row.at,
-          lat: row.lat,
-          lng: row.lng,
-        })),
-    )
+  app.get('/api/admin/attendance', requireAdmin, (req, res) => {
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : currentMonth()
+    const punches = db.prepare('SELECT * FROM attendance').all()
+    const corrections = db.prepare('SELECT * FROM corrections').all().map(mapCorrection).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    const employees = db.prepare('SELECT * FROM employees').all().map((employee) => {
+      const summary = summarizePunches(
+        punches.filter((item) => item.employee_id === employee.id),
+        month,
+      )
+      const pay = payOf(employee, summary.totalMinutes)
+      return { ...mapEmployee(employee), ...summary, ...pay, month }
+    })
+    res.json({ month, employees, corrections })
+  })
+
+  app.patch('/api/admin/corrections/:id', requireAdmin, (req, res) => {
+    const current = db.prepare('SELECT * FROM corrections WHERE id = ?').get(req.params.id)
+    if (!current) return res.status(404).json({ error: 'הבקשה לא נמצאה' })
+    const status = req.body?.status === 'approved' ? 'approved' : req.body?.status === 'rejected' ? 'rejected' : ''
+    if (!status || current.status !== 'pending') return res.status(400).json({ error: 'אפשר לאשר או לדחות רק בקשה שממתינה' })
+    if (status === 'approved') {
+      db.prepare('INSERT INTO attendance (id, employee_id, employee_name, kind, at, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        id('att'),
+        current.employee_id,
+        current.employee_name,
+        current.kind,
+        current.requested_at,
+        null,
+        null,
+      )
+    }
+    db.prepare('UPDATE corrections SET status = ? WHERE id = ?').run(status, current.id)
+    res.json(mapCorrection(db.prepare('SELECT * FROM corrections WHERE id = ?').get(current.id)))
   })
 
   app.get('/api/admin/mail', requireAdmin, (_req, res) => {

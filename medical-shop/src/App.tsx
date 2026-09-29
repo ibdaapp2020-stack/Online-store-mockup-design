@@ -9,7 +9,7 @@ import { OrderPage } from './pages/Order'
 import { ProductPage } from './pages/Product'
 import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
-import { AdminDashboard, AdminLogin, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
+import { AdminDashboard, AdminLogin, AdminMissing, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
 import { AdminCategories, AdminClub, AdminServices, AdminStaff } from './pages/admin-ops'
 import { StaffPage } from './pages/Staff'
 
@@ -42,6 +42,7 @@ export default function App() {
             <Route path="services" element={<AdminServices />} />
             <Route path="club" element={<AdminClub />} />
             <Route path="staff" element={<AdminStaff />} />
+            <Route path="*" element={<AdminMissing />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

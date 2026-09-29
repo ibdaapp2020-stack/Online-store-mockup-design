@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
-import { applyClubDiscount, adminSettings, lineOptions, nextSettings, publicSettings, registerClub, saveProductOptions, settleClub } from './club.mjs'
+import { applyClubDiscount, adminSettings, lineOptions, nextSettings, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, writeSessionCookie } from './club.mjs'
 import { bootError as seedError, db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
 
 loadEnv()
@@ -40,8 +40,8 @@ app.use(cookieParser())
 
 function requireAdmin(req, res, next) {
   const token = req.cookies.medica_admin
-  if (!token) return res.status(401).json({ error: 'נדרשת כניסת ניהול' })
-  const session = db.prepare('SELECT token FROM sessions WHERE token = ?').get(token)
+  if (token && readSession(db, token, 'admin')) return next()
+  const session = token && db.prepare('SELECT token FROM sessions WHERE token = ?').get(token)
   if (!session) return res.status(401).json({ error: 'נדרשת כניסת ניהול' })
   next()
 }
@@ -134,9 +134,9 @@ app.post('/api/admin/login', (req, res) => {
   if (!admin || !verifyPassword(String(req.body?.password ?? ''), admin.password_hash)) {
     return res.status(401).json({ error: 'סיסמה שגויה' })
   }
-  const token = randomBytes(24).toString('hex')
+  const token = signSession(db, 'admin')
   db.prepare('INSERT INTO sessions (token, created_at) VALUES (?, ?)').run(token, new Date().toISOString())
-  res.cookie('medica_admin', token, { httpOnly: true, sameSite: 'lax', path: '/' })
+  writeSessionCookie(res, 'medica_admin', token)
   res.json({ ok: true })
 })
 

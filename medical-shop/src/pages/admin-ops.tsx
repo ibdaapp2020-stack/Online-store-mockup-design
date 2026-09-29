@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { formatDate } from '../pricing'
+import { formatDate, money } from '../pricing'
 
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 
@@ -15,6 +15,7 @@ type Service = {
 
 type Appointment = {
   id: string
+  serviceId: string
   serviceName: string
   customerName: string
   date: string
@@ -23,9 +24,27 @@ type Appointment = {
 }
 
 type Member = { id: string; name: string; email: string; phone: string; birthday: string; city: string; points: number; nextPercent: number }
-type Employee = { id: string; name: string; username: string; active: boolean }
-type Punch = { id: string; employeeName: string; kind: string; at: string; lat: number | null; lng: number | null }
+type Shift = { inAt: string; outAt: string; minutes: number }
+type WorkDay = { date: string; minutes: number; shifts: Shift[] }
+type Correction = { id: string; employeeName: string; date: string; kind: string; requestedAt: string; note: string; status: string }
+type StaffCard = {
+  id: string
+  name: string
+  username: string
+  payMode: 'hour' | 'global'
+  hourlyRate: number
+  globalPay: number
+  salary: number
+  totalMinutes: number
+  days: WorkDay[]
+  openShift: { at: string } | null
+}
 type Mail = { id: string; orderId: string; to: string; status: string; detail: string; createdAt: string }
+
+function hoursLabel(minutes: number) {
+  const whole = Math.max(0, Math.round(minutes))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+}
 
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: 'include', ...init })
@@ -39,6 +58,7 @@ export function AdminServices() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4])
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   async function load() {
     try {
@@ -145,8 +165,81 @@ export function AdminServices() {
           </article>
         ))}
       </div>
+      <h2>קביעת תור מההנהלה</h2>
+      <form
+        className="panel form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          setError('')
+          const form = new FormData(event.currentTarget)
+          void adminFetch('/api/admin/appointments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              serviceId: form.get('serviceId'),
+              date: form.get('date'),
+              time: form.get('time'),
+              customerName: form.get('customerName'),
+              phone: form.get('phone'),
+              email: form.get('email'),
+              createCustomer: form.get('createCustomer') === 'on',
+            }),
+          })
+            .then((created) => {
+              const password = (created as { createdPassword?: string }).createdPassword
+              event.currentTarget.reset()
+              if (password) setNotice(`הלקוח נוצר. סיסמה זמנית: ${password}`)
+              else setNotice('התור נשמר')
+              return load()
+            })
+            .catch((reason) => setError(reason instanceof Error ? reason.message : 'שמירת התור נכשלה'))
+        }}
+      >
+        <label>
+          שירות
+          <select name="serviceId" required>
+            {services.map((service) => (
+              <option key={service.id} value={service.id}>
+                {service.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="split-fields">
+          <label>
+            תאריך
+            <input name="date" type="date" required />
+          </label>
+          <label>
+            שעה
+            <input name="time" type="time" required />
+          </label>
+        </div>
+        <div className="split-fields">
+          <label>
+            שם הלקוח
+            <input name="customerName" required />
+          </label>
+          <label>
+            טלפון
+            <input name="phone" required />
+          </label>
+        </div>
+        <label>
+          אימייל, אם פותחים אזור אישי
+          <input name="email" type="email" />
+        </label>
+        <label className="check-line">
+          <input name="createCustomer" type="checkbox" />
+          הקמת לקוח באזור האישי
+        </label>
+        <button className="btn" type="submit">
+          שמירת תור
+        </button>
+        {notice ? <p>{notice}</p> : null}
+      </form>
       <h2>תורים שנקבעו</h2>
-      <div className="admin-table">
+      <div className="stack-list">
         {appointments.map((item) => (
           <article key={item.id}>
             <div>
@@ -156,6 +249,30 @@ export function AdminServices() {
               <p className="muted">
                 {item.date} {item.time}
               </p>
+            </div>
+            <div className="split-fields">
+              <input
+                type="date"
+                value={item.date}
+                onChange={(event) => {
+                  void adminFetch(`/api/admin/appointments/${item.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: event.target.value }),
+                  }).then(load)
+                }}
+              />
+              <input
+                type="time"
+                value={item.time}
+                onChange={(event) => {
+                  void adminFetch(`/api/admin/appointments/${item.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ time: event.target.value }),
+                  }).then(load)
+                }}
+              />
             </div>
             <select
               value={item.status}
@@ -171,6 +288,16 @@ export function AdminServices() {
               <option value="done">בוצע</option>
               <option value="cancelled">בוטל</option>
             </select>
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                if (!window.confirm('למחוק את התור?')) return
+                void adminFetch(`/api/admin/appointments/${item.id}`, { method: 'DELETE' }).then(load)
+              }}
+            >
+              מחיקה
+            </button>
           </article>
         ))}
       </div>
@@ -323,22 +450,20 @@ export function AdminClub() {
 }
 
 export function AdminStaff() {
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [punches, setPunches] = useState<Punch[]>([])
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [employees, setEmployees] = useState<StaffCard[]>([])
+  const [corrections, setCorrections] = useState<Correction[]>([])
   const [error, setError] = useState('')
 
-  async function load() {
-    const [nextEmployees, nextPunches] = await Promise.all([
-      adminFetch<Employee[]>('/api/admin/employees'),
-      adminFetch<Punch[]>('/api/admin/attendance'),
-    ])
-    setEmployees(nextEmployees)
-    setPunches(nextPunches)
+  async function load(nextMonth = month) {
+    const data = await adminFetch<{ employees: StaffCard[]; corrections: Correction[] }>(`/api/admin/attendance?month=${nextMonth}`)
+    setEmployees(Array.isArray(data.employees) ? data.employees : [])
+    setCorrections(Array.isArray(data.corrections) ? data.corrections : [])
   }
 
   useEffect(() => {
-    void load()
-  }, [])
+    void load(month).catch((reason) => setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון נוכחות'))
+  }, [month])
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -355,6 +480,19 @@ export function AdminStaff() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
     }
+  }
+
+  async function savePay(employee: StaffCard, form: FormData) {
+    await adminFetch(`/api/admin/employees/${employee.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payMode: form.get('payMode'),
+        hourlyRate: Number(form.get('hourlyRate')),
+        globalPay: Number(form.get('globalPay')),
+      }),
+    })
+    await load()
   }
 
   return (
@@ -380,41 +518,113 @@ export function AdminStaff() {
           הוספת עובד
         </button>
       </form>
-      <div className="admin-table">
+      <label className="month-pick">
+        חודש
+        <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+      </label>
+      <div className="staff-board">
         {employees.map((employee) => (
-          <article key={employee.id}>
-            <div>
+          <article className="staff-card" key={employee.id}>
+            <header>
               <strong>{employee.name}</strong>
-              <p className="muted">{employee.username}</p>
-            </div>
+              <span className="muted">{employee.username}</span>
+            </header>
+            {employee.days.length === 0 ? <p className="muted">אין משמרות סגורות בחודש הזה.</p> : null}
+            {employee.days.map((day) => (
+              <div className="day-row" key={day.date}>
+                <span>{day.date}</span>
+                <span>
+                  {day.shifts.map((shift) => `${new Date(shift.inAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}–${new Date(shift.outAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`).join(' · ')}
+                </span>
+                <strong>{hoursLabel(day.minutes)}</strong>
+              </div>
+            ))}
+            {employee.openShift ? <p>משמרת פתוחה מ־{new Date(employee.openShift.at).toLocaleString('he-IL')}</p> : null}
+            <p>
+              סה״כ {hoursLabel(employee.totalMinutes)} · שכר {money(employee.salary)}
+            </p>
+            <form
+              className="split-fields"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void savePay(employee, new FormData(event.currentTarget))
+              }}
+            >
+              <label>
+                אופן תשלום
+                <select name="payMode" defaultValue={employee.payMode}>
+                  <option value="hour">לפי שעה</option>
+                  <option value="global">גלובלי לחודש</option>
+                </select>
+              </label>
+              <label>
+                תשלום שעתי ₪
+                <input name="hourlyRate" type="number" min={0} step="0.5" defaultValue={employee.hourlyRate} />
+              </label>
+              <label>
+                סכום גלובלי ₪
+                <input name="globalPay" type="number" min={0} step="1" defaultValue={employee.globalPay} />
+              </label>
+              <button className="btn secondary" type="submit">
+                חישוב שכר
+              </button>
+            </form>
             <button
               type="button"
               className="text-btn"
               onClick={() => {
-                void adminFetch(`/api/admin/employees/${employee.id}`, { method: 'DELETE' }).then(load)
+                if (!window.confirm('למחוק את העובד?')) return
+                void adminFetch(`/api/admin/employees/${employee.id}`, { method: 'DELETE' }).then(() => load())
               }}
             >
-              מחיקה
+              מחיקת עובד
             </button>
           </article>
         ))}
       </div>
-      <h2>מעקב נוכחות</h2>
-      <div className="admin-table">
-        {punches.map((punch) => (
-          <article key={punch.id}>
+      <h2>בקשות תיקון</h2>
+      <div className="stack-list">
+        {corrections.length === 0 ? <p className="muted">אין בקשות תיקון.</p> : null}
+        {corrections.map((item) => (
+          <article key={item.id}>
             <div>
               <strong>
-                {punch.employeeName} · {punch.kind === 'in' ? 'כניסה' : 'יציאה'}
+                {item.employeeName} · {item.kind === 'in' ? 'כניסה' : 'יציאה'} · {item.date}
               </strong>
-              <p className="muted">{new Date(punch.at).toLocaleString('he-IL')}</p>
+              <p className="muted">{item.note}</p>
+              <p>{new Date(item.requestedAt).toLocaleString('he-IL')}</p>
             </div>
-            {punch.lat != null && punch.lng != null ? (
-              <a href={`https://www.google.com/maps?q=${punch.lat},${punch.lng}`} target="_blank" rel="noreferrer">
-                מיקום
-              </a>
+            {item.status === 'pending' ? (
+              <div className="choice-row">
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    void adminFetch(`/api/admin/corrections/${item.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'approved' }),
+                    }).then(() => load())
+                  }}
+                >
+                  אישור
+                </button>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => {
+                    void adminFetch(`/api/admin/corrections/${item.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'rejected' }),
+                    }).then(() => load())
+                  }}
+                >
+                  דחייה
+                </button>
+              </div>
             ) : (
-              <span>בלי מיקום</span>
+              <span>{item.status === 'approved' ? 'אושר' : 'נדחה'}</span>
             )}
           </article>
         ))}

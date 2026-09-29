@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { Component, FormEvent, useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import { STATUS_LABEL } from '../data'
 import { money } from '../pricing'
@@ -56,12 +56,14 @@ export function AdminShell() {
 
   useEffect(() => {
     let active = true
-    adminFetch('/api/admin/me')
-      .then(() => {
-        if (active) setReady(true)
+    fetch('/api/admin/me', { credentials: 'include' })
+      .then((response) => {
+        if (!active) return
+        if (response.status === 401) navigate('/admin/login')
+        else setReady(true)
       })
       .catch(() => {
-        if (active) navigate('/admin/login')
+        if (active) setReady(true)
       })
     return () => {
       active = false
@@ -99,8 +101,40 @@ export function AdminShell() {
         </button>
       </aside>
       <main className="admin-main">
-        <Outlet />
+        <AdminBoundary>
+          <Outlet />
+        </AdminBoundary>
       </main>
+    </div>
+  )
+}
+
+class AdminBoundary extends Component<{ children: ReactNode }, { error: string }> {
+  state = { error: '' }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error: error.message || 'המסך נתקל בשגיאה' }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="panel">
+          <h1>המסך לא נטען</h1>
+          <p>{this.state.error}</p>
+          <Link to="/admin">חזרה ללוח הבקרה</Link>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+export function AdminMissing() {
+  return (
+    <div className="panel">
+      <h1>העמוד לא נמצא בניהול</h1>
+      <Link to="/admin">חזרה ללוח הבקרה</Link>
     </div>
   )
 }
