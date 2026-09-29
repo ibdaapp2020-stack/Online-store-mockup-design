@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -6,15 +7,23 @@ import { createJsonDb } from './json-db.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = join(root, 'data')
-const serverDir = dirname(fileURLToPath(import.meta.url))
 const onVercel = Boolean(process.env.VERCEL)
 
+export let bootError = null
+const seed = loadSeedFile()
+
 export const db = onVercel
-  ? createJsonDb(
-      join('/tmp', 'medica-shop.json'),
-      JSON.parse(readFileSync(join(serverDir, 'catalog-seed.json'), 'utf8')),
-    )
+  ? createJsonDb(join('/tmp', 'medica-shop.json'), seed)
   : await openSqlite()
+
+function loadSeedFile() {
+  try {
+    return createRequire(import.meta.url)('./catalog-seed.json')
+  } catch (error) {
+    bootError = error
+    return { categories: [], products: [], orders: [], settings: {}, admin: null, sessions: [] }
+  }
+}
 
 async function openSqlite() {
   mkdirSync(dataDir, { recursive: true })

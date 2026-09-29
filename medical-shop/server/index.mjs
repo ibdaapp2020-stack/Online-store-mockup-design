@@ -5,13 +5,18 @@ import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
-import { db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
+import { bootError as seedError, db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
 
 loadEnv()
-await initDb()
+let bootError = seedError
+try {
+  if (!bootError) await initDb()
+} catch (error) {
+  bootError = error
+}
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const uploads = join(root, 'public', 'uploads')
+const uploads = process.env.VERCEL ? join('/tmp', 'uploads') : join(root, 'public', 'uploads')
 mkdirSync(uploads, { recursive: true })
 
 const upload = multer({
@@ -39,6 +44,11 @@ function requireAdmin(req, res, next) {
   if (!session) return res.status(401).json({ error: 'נדרשת כניסת ניהול' })
   next()
 }
+
+app.use('/api', (req, res, next) => {
+  if (!bootError) return next()
+  res.status(500).json({ error: bootError.message })
+})
 
 app.get('/api/catalog', (_req, res) => {
   const categories = db.prepare('SELECT id, name, blurb FROM categories ORDER BY sort').all()
