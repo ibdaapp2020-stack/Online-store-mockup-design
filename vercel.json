@@ -1,0 +1,40 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "app": {
+      "root": ".",
+      "framework": "vite"
+    },
+    "medical-shop": {
+      "root": "medical-shop",
+      "framework": "vite",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "medical-api",
+          "format": "url",
+          "env": "MEDICAL_API_URL"
+        }
+      ]
+    },
+    "medical-api": {
+      "root": "medical-shop",
+      "framework": "express",
+      "entrypoint": "server/index.mjs"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "medical-api"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "medical-shop"
+      }
+    }
+  ]
+}
