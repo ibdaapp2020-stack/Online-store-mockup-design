@@ -1,30 +1,46 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { getProduct, SEED_ORDERS, STATUS_FLOW } from './data'
-import { COUPON_CODE, quote, type Quote } from './pricing'
-import type { CartLine, Customer, Order, OrderStatus, Product } from './types'
+import { quote, type Quote } from './pricing'
+import type { CartLine, Category, Customer, Order, Product, ShopSettings } from './types'
 
-const KEYS = {
-  cart: 'medica-cart',
-  orders: 'medica-orders',
-  coupon: 'medica-coupon',
+const CART_KEY = 'medica-cart'
+const COUPON_KEY = 'medica-coupon'
+const RECENT_KEY = 'medica-recent-orders'
+
+const FALLBACK_SETTINGS: ShopSettings = {
+  storeName: 'מדיקה',
+  tagline: 'מוצרים רפואיים לבית',
+  banner: '',
+  showBanner: false,
+  disclaimer: 'האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.',
+  shippingFee: 29,
+  freeFrom: 199,
+  couponCode: 'DEMO10',
+  couponPercent: 10,
+  paymentNote: 'ההזמנה נשמרת בחנות. פרטי הכרטיס לא נשמרים.',
 }
 
 export type CartDetail = CartLine & { product: Product }
 
 type StoreValue = {
+  ready: boolean
+  error: string
+  products: Product[]
+  categories: Category[]
+  settings: ShopSettings
   cart: CartDetail[]
-  orders: Order[]
+  recentOrders: Order[]
   coupon: string | null
   toast: string
   totals: Quote
   cartCount: number
+  refreshCatalog: () => Promise<void>
   addToCart: (productId: string, qty?: number) => void
   setQty: (productId: string, qty: number) => void
   removeFromCart: (productId: string) => void
   applyCoupon: (code: string) => boolean
   clearCoupon: () => void
-  placeOrder: (customer: Customer) => string | null
-  advanceStatus: (id: string) => void
+  placeOrder: (customer: Customer) => Promise<string | null>
+  findOrder: (id: string) => Promise<Order | null>
 }
 
 const StoreContext = createContext<StoreValue | null>(null)
@@ -38,76 +54,53 @@ function readJson<T>(key: string): T | null {
   }
 }
 
-function isStatus(value: string): value is OrderStatus {
-  return STATUS_FLOW.includes(value as OrderStatus)
-}
-
-function isOrder(value: unknown): value is Order {
-  if (!value || typeof value !== 'object') return false
-  const order = value as Order
-  return (
-    typeof order.id === 'string' &&
-    typeof order.status === 'string' &&
-    isStatus(order.status) &&
-    Array.isArray(order.items) &&
-    !!order.customer &&
-    typeof order.customer.name === 'string'
-  )
-}
-
-function loadCart(): CartLine[] {
-  const parsed = readJson<unknown>(KEYS.cart)
-  if (!Array.isArray(parsed)) return []
-  return parsed.filter(
-    (line): line is CartLine =>
-      !!line &&
-      typeof line === 'object' &&
-      typeof (line as CartLine).productId === 'string' &&
-      (line as CartLine).qty > 0 &&
-      !!getProduct((line as CartLine).productId),
-  )
-}
-
-function loadOrders(): Order[] {
-  const parsed = readJson<unknown>(KEYS.orders)
-  if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isOrder)) {
-    return SEED_ORDERS.map((order) => ({ ...order, items: order.items.map((item) => ({ ...item })) }))
-  }
-  return parsed
-}
-
-function loadCoupon(): string | null {
-  try {
-    return localStorage.getItem(KEYS.coupon) === COUPON_CODE ? COUPON_CODE : null
-  } catch {
-    return null
-  }
-}
-
-function nextOrderId(orders: Order[]) {
-  const nums = orders.map((order) => Number(order.id.replace('MED-', ''))).filter((value) => Number.isFinite(value))
-  const next = Math.max(10040, ...nums) + 1
-  return `MED-${next}`
-}
-
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [cart, setCart] = useState<CartLine[]>(loadCart)
-  const [orders, setOrders] = useState<Order[]>(loadOrders)
-  const [coupon, setCoupon] = useState<string | null>(loadCoupon)
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState('')
+  const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [settings, setSettings] = useState<ShopSettings>(FALLBACK_SETTINGS)
+  const [cart, setCart] = useState<CartLine[]>([])
+  const [recentOrders, setRecentOrders] = useState<Order[]>(() => readJson<Order[]>(RECENT_KEY) ?? [])
+  const [coupon, setCoupon] = useState<string | null>(null)
   const [toast, setToast] = useState('')
   const toastTimer = useRef<number | null>(null)
 
-  useEffect(() => {
-    localStorage.setItem(KEYS.cart, JSON.stringify(cart))
-  }, [cart])
+  async function refreshCatalog() {
+    const response = await fetch('/api/catalog')
+    if (!response.ok) throw new Error('לא ניתן לטעון את החנות')
+    const data = (await response.json()) as { products: Product[]; categories: Category[]; settings: ShopSettings }
+    setProducts(data.products)
+    setCategories(data.categories)
+    setSettings(data.settings)
+    setCart((current) => {
+      const stored = current.length ? current : readJson<CartLine[]>(CART_KEY) ?? []
+      return stored.filter((line) => data.products.some((product) => product.id === line.productId && product.stock > 0))
+    })
+    const savedCoupon = localStorage.getItem(COUPON_KEY)
+    if (savedCoupon && savedCoupon.toUpperCase() === data.settings.couponCode.toUpperCase()) setCoupon(data.settings.couponCode)
+  }
 
   useEffect(() => {
-    localStorage.setItem(KEYS.orders, JSON.stringify(orders))
-  }, [orders])
+    refreshCatalog()
+      .then(() => setReady(true))
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : 'שגיאת טעינה')
+        setReady(true)
+      })
+  }, [])
 
   useEffect(() => {
-    if (coupon) localStorage.setItem(KEYS.coupon, coupon)
-    else localStorage.removeItem(KEYS.coupon)
+    if (ready) localStorage.setItem(CART_KEY, JSON.stringify(cart))
+  }, [cart, ready])
+
+  useEffect(() => {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recentOrders))
+  }, [recentOrders])
+
+  useEffect(() => {
+    if (coupon) localStorage.setItem(COUPON_KEY, coupon)
+    else localStorage.removeItem(COUPON_KEY)
   }, [coupon])
 
   function notify(message: string) {
@@ -119,21 +112,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const detailed = useMemo<CartDetail[]>(
     () =>
       cart.flatMap((line) => {
-        const product = getProduct(line.productId)
+        const product = products.find((item) => item.id === line.productId)
         return product ? [{ ...line, product }] : []
       }),
-    [cart],
+    [cart, products],
   )
 
-  const totals = useMemo(() => {
-    const subtotal = detailed.reduce((sum, line) => sum + line.product.price * line.qty, 0)
-    return quote(subtotal, coupon === COUPON_CODE)
-  }, [detailed, coupon])
+  const totals = useMemo(
+    () =>
+      quote(
+        detailed.reduce((sum, line) => sum + line.product.price * line.qty, 0),
+        coupon?.toUpperCase() === settings.couponCode.toUpperCase(),
+        settings,
+      ),
+    [detailed, coupon, settings],
+  )
 
   const cartCount = detailed.reduce((sum, line) => sum + line.qty, 0)
 
   function addToCart(productId: string, qty = 1) {
-    const product = getProduct(productId)
+    const product = products.find((item) => item.id === productId)
     if (!product || product.stock <= 0 || qty <= 0) return
     setCart((prev) => {
       const existing = prev.find((line) => line.productId === productId)
@@ -145,7 +143,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   function setQty(productId: string, qty: number) {
-    const product = getProduct(productId)
+    const product = products.find((item) => item.id === productId)
     if (!product) return
     if (qty <= 0) {
       setCart((prev) => prev.filter((line) => line.productId !== productId))
@@ -160,12 +158,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   function applyCoupon(code: string) {
-    if (code.trim().toUpperCase() === COUPON_CODE) {
-      setCoupon(COUPON_CODE)
-      notify('קופון DEMO10 הופעל')
+    if (code.trim().toUpperCase() === settings.couponCode.toUpperCase()) {
+      setCoupon(settings.couponCode)
+      notify(`קופון ${settings.couponCode} הופעל`)
       return true
     }
-    notify('הקוד לא מוכר. לדמו: DEMO10')
+    notify(`הקוד לא מוכר. הקוד הפעיל: ${settings.couponCode}`)
     return false
   }
 
@@ -173,59 +171,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setCoupon(null)
   }
 
-  function placeOrder(customer: Customer) {
+  async function placeOrder(customer: Customer) {
     if (detailed.length === 0) return null
-    const items = detailed.map((line) => ({
-      productId: line.product.id,
-      name: line.product.name,
-      price: line.product.price,
-      qty: line.qty,
-    }))
-    const order: Order = {
-      id: nextOrderId(orders),
-      createdAt: new Date().toISOString(),
-      status: 'received',
-      customer: {
-        name: customer.name.trim(),
-        phone: customer.phone.trim(),
-        city: customer.city.trim(),
-        address: customer.address.trim(),
-      },
-      items,
-      ...totals,
-      coupon: coupon === COUPON_CODE ? COUPON_CODE : undefined,
+    const response = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer,
+        coupon,
+        items: detailed.map((line) => ({ productId: line.productId, qty: line.qty })),
+      }),
+    })
+    const data = (await response.json()) as Order & { error?: string }
+    if (!response.ok) {
+      notify(data.error || 'לא ניתן לקלוט את ההזמנה')
+      return null
     }
-    setOrders((prev) => [order, ...prev])
+    setRecentOrders((prev) => [data, ...prev.filter((order) => order.id !== data.id)])
     setCart([])
     setCoupon(null)
-    return order.id
+    await refreshCatalog()
+    return data.id
   }
 
-  function advanceStatus(id: string) {
-    setOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== id) return order
-        const index = STATUS_FLOW.indexOf(order.status)
-        if (index < 0 || index >= STATUS_FLOW.length - 1) return order
-        return { ...order, status: STATUS_FLOW[index + 1] }
-      }),
-    )
+  async function findOrder(id: string) {
+    const local = recentOrders.find((order) => order.id.toLowerCase() === id.toLowerCase())
+    const response = await fetch(`/api/orders/track/${encodeURIComponent(id)}`)
+    if (!response.ok) return local ?? null
+    return (await response.json()) as Order
   }
 
   const value: StoreValue = {
+    ready,
+    error,
+    products,
+    categories,
+    settings,
     cart: detailed,
-    orders,
+    recentOrders,
     coupon,
     toast,
     totals,
     cartCount,
+    refreshCatalog,
     addToCart,
     setQty,
     removeFromCart,
     applyCoupon,
     clearCoupon,
     placeOrder,
-    advanceStatus,
+    findOrder,
   }
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

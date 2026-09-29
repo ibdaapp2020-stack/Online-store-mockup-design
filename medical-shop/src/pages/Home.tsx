@@ -1,23 +1,24 @@
 import { Link } from 'react-router-dom'
-import { CATEGORIES, productImage, PRODUCTS } from '../data'
+import { productImage } from '../data'
 import { ProductCard } from '../components/ProductCard'
 import { CategoryIcon } from '../components/Icons'
-import { useTitle } from '../components/ui'
+import { SkeletonGrid, useTitle } from '../components/ui'
+import { useStore } from '../store'
 
 export function HomePage() {
   useTitle('בית')
-  const featured = PRODUCTS.filter((product) => product.badge === 'popular').slice(0, 4)
-  const deals = PRODUCTS.filter((product) => product.compareAt).slice(0, 4)
+  const { products, categories, ready, settings } = useStore()
+  const featured = products.filter((product) => product.badge === 'popular').slice(0, 4)
+  const deals = products.filter((product) => product.compareAt).slice(0, 4)
+  const hero = [products.find((product) => product.id === 'thermo'), products.find((product) => product.id === 'kit'), products.find((product) => product.id === 'vd')].filter(Boolean)
 
   return (
     <div>
       <section className="hero">
         <div>
-          <p className="eyebrow">חנות דמו · ללא מרשם</p>
-          <h1>מוצרים רפואיים לבית, מוכנים לתצוגה</h1>
-          <p className="lede">
-            עזרה ראשונה, מדדים, ויטמינים, היגיינה, תמיכות וציוד ביתי. הסל, התשלום והמעקב עובדים מקצה לקצה — בלי שרת ובלי חיוב.
-          </p>
+          <p className="eyebrow">{settings.storeName} · ללא מרשם</p>
+          <h1>מוצרים רפואיים לבית</h1>
+          <p className="lede">עזרה ראשונה, מדדים, ויטמינים, היגיינה, תמיכות וציוד ביתי. ההזמנות נשמרות ומנוהלות בחנות.</p>
           <div className="hero-actions">
             <Link className="btn" to="/catalog">
               לקטלוג
@@ -28,30 +29,28 @@ export function HomePage() {
           </div>
         </div>
         <div className="hero-art" aria-hidden="true">
-          <div className="art-card">
-            <img src={productImage('thermo')} alt="" />
-          </div>
-          <div className="art-card">
-            <img src={productImage('kit')} alt="" />
-          </div>
-          <div className="art-card">
-            <img src={productImage('vd')} alt="" />
-          </div>
+          {(hero.length ? hero : [{ id: 'thermo' }, { id: 'kit' }, { id: 'vd' }]).map((product) =>
+            product ? (
+              <div className="art-card" key={product.id}>
+                <img src={productImage(product)} alt="" />
+              </div>
+            ) : null,
+          )}
         </div>
       </section>
 
-      <section className="trust" aria-label="יתרונות להדגמה">
+      <section className="trust" aria-label="שירות">
         <article>
-          <h2>משלוח מדומה</h2>
-          <p>חינם מעל 199 ₪. מתחת לסכום הזה נוסף דמי משלוח קבועים לתצוגה.</p>
+          <h2>משלוח</h2>
+          <p>חינם מעל {settings.freeFrom} ₪. מתחת לסכום הזה נוסף דמי משלוח.</p>
         </article>
         <article>
-          <h2>ייעוץ תצוגה</h2>
-          <p>הטקסטים בחנות מתארים מוצרים. הם אינם ייעוץ רפואי ואינם הנחיות טיפול.</p>
+          <h2>מעקב הזמנה</h2>
+          <p>אחרי הקנייה אפשר לעקוב אחרי הסטטוס לפי מספר ההזמנה.</p>
         </article>
         <article>
-          <h2>החזרות דמו</h2>
-          <p>מדיניות ההחזרה מוצגת כחלק מהסיפור. אין החזר כספי אמיתי.</p>
+          <h2>בלי מרשם</h2>
+          <p>הטקסטים מתארים מוצרים. הם אינם ייעוץ רפואי ואינם הנחיות טיפול.</p>
         </article>
       </section>
 
@@ -60,7 +59,7 @@ export function HomePage() {
           <h2>קטגוריות</h2>
         </div>
         <div className="cat-grid">
-          {CATEGORIES.map((category) => (
+          {categories.map((category) => (
             <Link key={category.id} className="cat-card" to={`/catalog?cat=${category.id}`}>
               <span className="cat-icon">
                 <CategoryIcon id={category.id} />
@@ -77,11 +76,15 @@ export function HomePage() {
           <h2>נמכרים בתצוגה</h2>
           <Link to="/catalog?sort=rating">לכל המוצרים</Link>
         </div>
-        <div className="product-grid">
-          {featured.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        {ready ? (
+          <div className="product-grid">
+            {featured.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : (
+          <SkeletonGrid />
+        )}
       </section>
 
       <section>

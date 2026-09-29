@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
-import { CATEGORIES, PRODUCTS } from '../data'
 import { ProductCard } from '../components/ProductCard'
-import { EmptyState, SkeletonGrid, useMockDelay, useTitle } from '../components/ui'
+import { EmptyState, SkeletonGrid, useTitle } from '../components/ui'
+import { useStore } from '../store'
 import type { CategoryId } from '../types'
 
 const SORTS = [
@@ -14,12 +14,12 @@ const SORTS = [
 
 export function CatalogPage() {
   useTitle('קטלוג')
-  const ready = useMockDelay(300)
+  const { products, categories, ready } = useStore()
   const [params, setParams] = useSearchParams()
   const cat = params.get('cat') ?? ''
   const sort = params.get('sort') ?? ''
   const q = params.get('q') ?? ''
-  const category = CATEGORIES.find((item) => item.id === cat)
+  const category = categories.find((item) => item.id === cat)
 
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(params)
@@ -28,14 +28,14 @@ export function CatalogPage() {
     setParams(next)
   }
 
-  const filtered = PRODUCTS.filter((product) => {
+  const filtered = products.filter((product) => {
     const inCategory = !cat || product.category === (cat as CategoryId)
     const haystack = `${product.name} ${product.description}`.toLowerCase()
     const inSearch = !q.trim() || haystack.includes(q.trim().toLowerCase())
     return inCategory && inSearch
   })
 
-  const products = [...filtered].sort((a, b) => {
+  const visible = [...filtered].sort((a, b) => {
     if (sort === 'price-asc') return a.price - b.price
     if (sort === 'price-desc') return b.price - a.price
     if (sort === 'name') return a.name.localeCompare(b.name, 'he')
@@ -61,7 +61,7 @@ export function CatalogPage() {
             <button type="button" className={!cat ? 'chip on' : 'chip'} onClick={() => setParam('cat', '')}>
               הכל
             </button>
-            {CATEGORIES.map((item) => (
+            {categories.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -86,7 +86,7 @@ export function CatalogPage() {
         <div>
           {!ready ? (
             <SkeletonGrid />
-          ) : products.length === 0 ? (
+          ) : visible.length === 0 ? (
             <EmptyState
               title="לא נמצאו מוצרים"
               text={q ? `אין תוצאות עבור «${q}».` : 'אין מוצרים בקטגוריה הזו.'}
@@ -107,9 +107,9 @@ export function CatalogPage() {
             />
           ) : (
             <>
-              <p className="result-count">{products.length} מוצרים</p>
+              <p className="result-count">{visible.length} מוצרים</p>
               <div className="product-grid">
-                {products.map((product) => (
+                {visible.map((product) => (
                   <ProductCard key={product.id} product={product} />
                 ))}
               </div>

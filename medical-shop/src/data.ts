@@ -483,8 +483,9 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   delivered: 'נמסרה',
 }
 
-export function productImage(id: string) {
-  return `/products/${id}.png`
+export function productImage(product: string | { id: string; image?: string }) {
+  if (typeof product === 'string') return `/products/${product}.png`
+  return product.image || `/products/${product.id}.png`
 }
 
 export function getProduct(id: string) {

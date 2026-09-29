@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 
 export function Layout() {
-  const { cartCount, toast } = useStore()
+  const { cartCount, toast, settings } = useStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [query, setQuery] = useState('')
@@ -16,7 +16,7 @@ export function Layout() {
   return (
     <div className="app">
       <div className="sticky-top">
-        <div className="demo-banner">חנות להדגמה · הנתונים, הסל, התשלום והמעקב מדומים</div>
+        {settings.showBanner && settings.banner ? <div className="demo-banner">{settings.banner}</div> : null}
         <header className="site-header">
           <div className="header-inner">
             <NavLink to="/" className="logo" end>
@@ -25,7 +25,7 @@ export function Layout() {
               </span>
               <span>
                 מדיקה
-                <small>מוצרים רפואיים לבית</small>
+                <small>{settings.tagline}</small>
               </span>
             </NavLink>
             <form
@@ -67,7 +67,10 @@ export function Layout() {
       <footer className="footer">
         <div className="container">
           <strong>האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.</strong>
-          <p>כל המוצרים ללא מרשם. המחירים, המלאי, התשלום, המשלוח והמעקב מוצגים להדגמה בלבד ולא מתבצעת בהם פעולה אמיתית.</p>
+          <p>{settings.disclaimer}</p>
+          <p>
+            <a href="/admin">כניסת ניהול</a>
+          </p>
         </div>
       </footer>
       {toast ? (

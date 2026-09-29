@@ -8,6 +8,7 @@ import { OrderPage } from './pages/Order'
 import { ProductPage } from './pages/Product'
 import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
+import { AdminDashboard, AdminLogin, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
 
 export default function App() {
   return (
@@ -23,6 +24,15 @@ export default function App() {
             <Route path="/order/:id" element={<OrderPage />} />
             <Route path="/track" element={<TrackPage />} />
             <Route path="/track/:id" element={<TrackPage />} />
+          </Route>
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin" element={<AdminShell />}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="products" element={<AdminProducts />} />
+            <Route path="products/new" element={<AdminProductForm />} />
+            <Route path="products/:id" element={<AdminProductForm />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="settings" element={<AdminSettings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

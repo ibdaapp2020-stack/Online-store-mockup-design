@@ -28,7 +28,7 @@ function problems(form: FormState) {
 
 export function CheckoutPage() {
   useTitle('תשלום דמו')
-  const { cart, totals, coupon, placeOrder } = useStore()
+  const { cart, totals, coupon, settings, placeOrder } = useStore()
   const navigate = useNavigate()
   const [form, setForm] = useState<FormState>(EMPTY)
   const [errors, setErrors] = useState<string[]>([])
@@ -66,7 +66,7 @@ export function CheckoutPage() {
   return (
     <div>
       <h1>תשלום להדגמה</h1>
-      <p className="notice">תשלום להדגמה בלבד — לא מחויב כסף</p>
+      <p className="notice">{settings.paymentNote}</p>
       <div className="checkout-grid">
         <form
           className="panel form"
@@ -79,14 +79,15 @@ export function CheckoutPage() {
             if (nextErrors.length > 0) return
             setPaying(true)
             window.setTimeout(() => {
-              const id = placeOrder({
+              void placeOrder({
                 name: form.name,
                 phone: form.phone,
                 city: form.city,
                 address: form.address,
+              }).then((id) => {
+                if (id) navigate(`/order/${id}`)
+                else setPaying(false)
               })
-              if (id) navigate(`/order/${id}`)
-              else setPaying(false)
             }, 700)
           }}
         >

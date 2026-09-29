@@ -2,15 +2,15 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { productImage } from '../data'
 import { EmptyState, QtyControl, useTitle } from '../components/ui'
-import { COUPON_CODE, FREE_FROM, money } from '../pricing'
+import { money } from '../pricing'
 import { useStore } from '../store'
 
 export function CartPage() {
   useTitle('סל')
-  const { cart, totals, coupon, setQty, removeFromCart, applyCoupon, clearCoupon } = useStore()
+  const { cart, totals, coupon, settings, setQty, removeFromCart, applyCoupon, clearCoupon } = useStore()
   const [code, setCode] = useState('')
   const [couponNote, setCouponNote] = useState('')
-  const remaining = Math.max(0, FREE_FROM - totals.subtotal)
+  const remaining = Math.max(0, settings.freeFrom - totals.subtotal)
 
   if (cart.length === 0) {
     return (
@@ -34,7 +34,7 @@ export function CartPage() {
           {cart.map((line) => (
             <article key={line.productId} className="cart-line">
               <div className="line-swatch">
-                <img src={productImage(line.product.id)} alt="" />
+                <img src={productImage(line.product)} alt="" />
               </div>
               <div>
                 <Link to={`/p/${line.productId}`}>{line.product.name}</Link>
@@ -63,7 +63,7 @@ export function CartPage() {
             <span>{totals.shipping === 0 ? 'חינם' : money(totals.shipping)}</span>
           </div>
           <p className="muted">
-            {remaining > 0 ? `עוד ${money(remaining)} למשלוח חינם.` : 'הגעתם למשלוח חינם בדמו.'} החינם מחושב לפני הנחה, מעל {money(FREE_FROM)}.
+            {remaining > 0 ? `עוד ${money(remaining)} למשלוח חינם.` : 'הגעתם למשלוח חינם.'} החינם מחושב לפני הנחה, מעל {money(settings.freeFrom)}.
           </p>
           {coupon ? (
             <p className="coupon-on">
@@ -78,12 +78,12 @@ export function CartPage() {
               onSubmit={(event) => {
                 event.preventDefault()
                 const ok = applyCoupon(code)
-                setCouponNote(ok ? 'ההנחה נוספה לסיכום.' : `הקוד לא מוכר. נסו ${COUPON_CODE}.`)
+                setCouponNote(ok ? 'ההנחה נוספה לסיכום.' : `הקוד לא מוכר. נסו ${settings.couponCode}.`)
               }}
             >
               <label>
                 קופון דמו
-                <input value={code} onChange={(event) => setCode(event.target.value)} placeholder={COUPON_CODE} />
+                <input value={code} onChange={(event) => setCode(event.target.value)} placeholder={settings.couponCode} />
               </label>
               <button type="submit" className="btn secondary">
                 הפעלת קופון

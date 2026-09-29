@@ -1,28 +1,57 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { STATUS_FLOW, STATUS_LABEL } from '../data'
-import { EmptyState, useTitle } from '../components/ui'
+import { useTitle } from '../components/ui'
 import { formatDate, money } from '../pricing'
 import { useStore } from '../store'
+import type { Order } from '../types'
 
 export function TrackPage() {
   useTitle('מעקב הזמנה')
   const { id = '' } = useParams()
   const navigate = useNavigate()
-  const { orders, advanceStatus } = useStore()
+  const { recentOrders } = useStore()
   const [query, setQuery] = useState(id)
   const [searching, setSearching] = useState(false)
+  const [missingInput, setMissingInput] = useState(false)
+  const [order, setOrder] = useState<Order | null>(null)
+  const [missing, setMissing] = useState(false)
 
   useEffect(() => {
     setQuery(id)
+    if (!id) {
+      setOrder(null)
+      setMissing(false)
+      return
+    }
+    let active = true
+    setSearching(true)
+    void fetch(`/api/orders/track/${encodeURIComponent(id)}`)
+      .then(async (response) => {
+        if (!active) return
+        if (!response.ok) {
+          setOrder(null)
+          setMissing(true)
+        } else {
+          setOrder((await response.json()) as Order)
+          setMissing(false)
+        }
+        setSearching(false)
+      })
+      .catch(() => {
+        if (!active) return
+        setMissing(true)
+        setSearching(false)
+      })
+    return () => {
+      active = false
+    }
   }, [id])
-  const [missingInput, setMissingInput] = useState(false)
-  const order = id ? orders.find((item) => item.id.toLowerCase() === id.toLowerCase()) : undefined
 
   return (
     <div>
       <h1>מעקב הזמנה</h1>
-      <p className="lede">הזינו מספר הזמנה. ארבע הזמנות דמו כבר ממתינות, והזמנות חדשות נשמרות בדפדפן.</p>
+      <p className="lede">הזינו מספר הזמנה. הסטטוס מתעדכן על ידי הנהלת החנות.</p>
       <form
         className="track-form"
         onSubmit={(event) => {
@@ -33,32 +62,20 @@ export function TrackPage() {
             return
           }
           setMissingInput(false)
-          setSearching(true)
-          window.setTimeout(() => {
-            setSearching(false)
-            navigate(`/track/${next}`)
-          }, 400)
+          navigate(`/track/${next}`)
         }}
       >
         <label>
           מספר הזמנה
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="MED-10041" />
         </label>
-        <button type="submit" className="btn" disabled={searching}>
-          {searching ? 'מחפש...' : 'חיפוש'}
+        <button type="submit" className="btn">
+          חיפוש
         </button>
       </form>
-      {missingInput ? (
-        <p role="alert" className="form-errors">
-          הזינו מספר הזמנה.
-        </p>
-      ) : null}
+      {missingInput ? <p role="alert" className="form-errors">הזינו מספר הזמנה.</p> : null}
       {searching ? <p role="status">מחפש הזמנה...</p> : null}
-
-      {id && !searching && !order ? (
-        <EmptyState title="ההזמנה לא נמצאה" text={`אין הזמנה עם המספר ${id} בדפדפן הזה.`} />
-      ) : null}
-
+      {id && !searching && missing ? <p role="alert" className="form-errors">אין הזמנה עם המספר {id}.</p> : null}
       {order && !searching ? (
         <article className="panel track-card">
           <div className="section-head">
@@ -82,17 +99,10 @@ export function TrackPage() {
               )
             })}
           </ol>
-          <button
-            type="button"
-            className="btn secondary"
-            disabled={order.status === 'delivered'}
-            onClick={() => advanceStatus(order.id)}
-          >
-            {order.status === 'delivered' ? 'ההזמנה נמסרה' : 'קדם סטטוס (דמו)'}
-          </button>
+          <p className="muted">הסטטוס הנוכחי: {STATUS_LABEL[order.status]}</p>
           <ul className="mini-lines">
             {order.items.map((item) => (
-              <li key={item.productId}>
+              <li key={`${item.productId}-${item.name}`}>
                 <span>
                   {item.name} × {item.qty}
                 </span>
@@ -102,19 +112,20 @@ export function TrackPage() {
           </ul>
         </article>
       ) : null}
-
-      <section>
-        <h2>הזמנות בדפדפן</h2>
-        <div className="order-list">
-          {orders.map((item) => (
-            <Link key={item.id} to={`/track/${item.id}`} className={item.id === order?.id ? 'order-pill on' : 'order-pill'}>
-              <strong>{item.id}</strong>
-              <span>{STATUS_LABEL[item.status]}</span>
-              <span>{item.customer.name}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
+      {recentOrders.length > 0 ? (
+        <section>
+          <h2>ההזמנות שלי במחשב הזה</h2>
+          <div className="order-list">
+            {recentOrders.map((item) => (
+              <Link key={item.id} to={`/track/${item.id}`} className={item.id === order?.id ? 'order-pill on' : 'order-pill'}>
+                <strong>{item.id}</strong>
+                <span>{STATUS_LABEL[item.status]}</span>
+                <span>{item.customer.name}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   )
 }

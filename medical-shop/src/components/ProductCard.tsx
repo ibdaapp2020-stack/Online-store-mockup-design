@@ -12,7 +12,7 @@ export function ProductCard({ product }: { product: Product }) {
     <article className="card">
       <Link to={`/p/${product.id}`} className="card-media">
         <BadgeTag badge={product.badge} />
-        <img src={productImage(product.id)} alt="" />
+        <img src={productImage(product)} alt="" />
       </Link>
       <div className="card-body">
         <Link to={`/p/${product.id}`} className="card-title">

@@ -10,9 +10,17 @@ export type Quote = {
   total: number
 }
 
-export function quote(subtotal: number, couponOn: boolean): Quote {
-  const discount = couponOn ? Math.round(subtotal * COUPON_RATE) : 0
-  const shipping = subtotal === 0 || subtotal >= FREE_FROM ? 0 : SHIPPING_FEE
+export function quote(
+  subtotal: number,
+  couponOn: boolean,
+  rules: { shippingFee: number; freeFrom: number; couponPercent: number } = {
+    shippingFee: SHIPPING_FEE,
+    freeFrom: FREE_FROM,
+    couponPercent: COUPON_RATE * 100,
+  },
+): Quote {
+  const discount = couponOn ? Math.round(subtotal * (rules.couponPercent / 100)) : 0
+  const shipping = subtotal === 0 || subtotal >= rules.freeFrom ? 0 : rules.shippingFee
   return {
     subtotal,
     discount,

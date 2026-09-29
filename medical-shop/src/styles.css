@@ -212,6 +212,31 @@ input, select {
 
 .footer { border-top: 1px solid var(--line); background: white; padding: 1.4rem 0 2rem; color: var(--muted); }
 .footer strong { color: var(--ink); }
+.footer a { font-weight: 700; }
+
+.admin-login { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
+.admin-login form { width: min(420px, 100%); }
+.admin-wait { padding: 2rem; }
+.admin-app { min-height: 100vh; display: grid; grid-template-columns: 220px 1fr; }
+.admin-side { background: #12312d; color: white; padding: 1.2rem; display: grid; align-content: start; gap: 0.4rem; }
+.admin-side a, .admin-side button { color: white; text-decoration: none; background: transparent; border: 0; text-align: start; padding: 0.55rem 0.4rem; border-radius: 10px; cursor: pointer; font-weight: 700; }
+.admin-side a.active, .admin-side a:hover { background: rgba(255,255,255,0.12); }
+.admin-main { padding: 1.4rem; }
+.admin-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }
+.admin-stats article, .admin-table article { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 1rem; }
+.admin-stats span { color: var(--muted); }
+.admin-stats strong { display: block; font-size: 1.6rem; }
+.admin-list { padding: 0; list-style: none; display: grid; gap: 0.4rem; }
+.admin-table { display: grid; gap: 0.6rem; }
+.admin-table article { display: grid; grid-template-columns: 64px 1fr auto auto; gap: 0.8rem; align-items: center; }
+.admin-table img { width: 64px; height: 64px; object-fit: contain; background: #f7f4ef; border-radius: 10px; }
+.admin-form textarea { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem; font: inherit; }
+.check { display: flex; align-items: center; gap: 0.5rem; }
+.check input { width: auto; }
+.admin-orders article { grid-template-columns: 1fr auto auto; }
+@media (max-width: 860px) {
+  .admin-app, .admin-stats, .admin-table article, .admin-orders article { grid-template-columns: 1fr; }
+}
 .toast {
   position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
   background: var(--ink); color: white; border-radius: 999px; padding: 0.7rem 1rem; z-index: 30;

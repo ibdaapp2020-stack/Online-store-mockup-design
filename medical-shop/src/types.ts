@@ -15,6 +15,21 @@ export type Product = {
   rating: number
   reviews: number
   tone: string
+  image?: string
+  active?: boolean
+}
+
+export type ShopSettings = {
+  storeName: string
+  tagline: string
+  banner: string
+  showBanner: boolean
+  disclaimer: string
+  shippingFee: number
+  freeFrom: number
+  couponCode: string
+  couponPercent: number
+  paymentNote: string
 }
 
 export type Category = {

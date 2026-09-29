@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getCategory, getProduct, productImage, PRODUCTS } from '../data'
+import { productImage } from '../data'
 import { ProductCard } from '../components/ProductCard'
 import { EmptyState, QtyControl, Stars, useTitle } from '../components/ui'
 import { money } from '../pricing'
@@ -8,21 +8,22 @@ import { useStore } from '../store'
 
 export function ProductPage() {
   const { id = '' } = useParams()
-  const product = getProduct(id)
+  const { addToCart, products, categories, ready } = useStore()
+  const product = products.find((item) => item.id === id)
   useTitle(product?.name ?? 'מוצר')
-  const { addToCart } = useStore()
   const [qty, setQty] = useState(1)
 
   useEffect(() => {
     setQty(1)
   }, [id])
 
+  if (!ready) return null
   if (!product) {
-    return <EmptyState title="המוצר לא נמצא" text="הפריט אינו בקטלוג הדמו." action={<Link className="btn" to="/catalog">חזרה לקטלוג</Link>} />
+    return <EmptyState title="המוצר לא נמצא" text="הפריט אינו בקטלוג." action={<Link className="btn" to="/catalog">חזרה לקטלוג</Link>} />
   }
 
-  const category = getCategory(product.category)
-  const similar = PRODUCTS.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 4)
+  const category = categories.find((item) => item.id === product.category)
+  const similar = products.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 4)
   const soldOut = product.stock <= 0
 
   return (
@@ -33,7 +34,7 @@ export function ProductPage() {
       </p>
       <div className="product-layout">
         <div className="gallery-main">
-          <img src={productImage(product.id)} alt={product.name} />
+          <img src={productImage(product)} alt={product.name} />
         </div>
         <div className="product-copy">
           <h1>{product.name}</h1>
