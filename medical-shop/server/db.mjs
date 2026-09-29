@@ -1,9 +1,9 @@
-import { createRequire } from 'node:module'
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createJsonDb } from './json-db.mjs'
+import seedFile from './catalog-seed.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = join(root, 'data')
@@ -17,12 +17,7 @@ export const db = onVercel
   : await openSqlite()
 
 function loadSeedFile() {
-  try {
-    return createRequire(import.meta.url)('./catalog-seed.json')
-  } catch (error) {
-    bootError = error
-    return { categories: [], products: [], orders: [], settings: {}, admin: null, sessions: [] }
-  }
+  return seedFile
 }
 
 async function openSqlite() {
