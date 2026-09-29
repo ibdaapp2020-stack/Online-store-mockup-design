@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EmptyState, useTitle } from '../components/ui'
 import { money } from '../pricing'
 import { variantLabel } from '../types'
+import { PICKUP } from '../pickup'
 import { useStore } from '../store'
 
 type FormState = {
@@ -32,9 +33,27 @@ export function CheckoutPage() {
   const { cart, totals, coupon, settings, placeOrder } = useStore()
   const navigate = useNavigate()
   const [form, setForm] = useState<FormState>(EMPTY)
+  const [savedProfile, setSavedProfile] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
   const [tried, setTried] = useState(false)
   const [paying, setPaying] = useState(false)
+
+  useEffect(() => {
+    void fetch('/api/account/me', { credentials: 'include' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { customer?: { name: string; phone: string; city: string; address: string } } | null) => {
+        const customer = data?.customer
+        if (!customer?.name) return
+        setForm((current) => ({
+          ...current,
+          name: customer.name,
+          phone: customer.phone,
+          city: customer.city,
+          address: customer.address,
+        }))
+        setSavedProfile(Boolean(customer.name && customer.phone && customer.city && customer.address))
+      })
+  }, [])
 
   if (cart.length === 0) {
     return (
@@ -95,11 +114,18 @@ export function CheckoutPage() {
           <h2>פרטי מקבל</h2>
           <p className="muted">
             איסוף עצמי:{' '}
-            <a dir="ltr" href="https://www.google.com/maps?q=31.198055,34.835889" target="_blank" rel="noreferrer">
-              31°11'53.0"N 34°50'09.2"E
+            <a href={PICKUP.maps} target="_blank" rel="noreferrer">
+              {PICKUP.line}
             </a>
-            . למשלוח עד הבית מלאו כתובת.
+            . למשלוח עד הבית נשתמש בכתובת השמורה.
           </p>
+          {savedProfile ? (
+            <p className="profile-note">
+              ההזמנה על שם {form.name}, {form.phone}, {form.city}, {form.address}.{' '}
+              <Link to="/account">עדכון פרטים</Link>
+            </p>
+          ) : (
+            <>
           <label className={invalid.name ? 'invalid' : ''}>
             שם מלא
             <input value={form.name} onChange={(event) => update('name', event.target.value)} autoComplete="off" />
@@ -118,6 +144,8 @@ export function CheckoutPage() {
               <input value={form.address} onChange={(event) => update('address', event.target.value)} autoComplete="off" />
             </label>
           </div>
+            </>
+          )}
           <h2>כרטיס מדומה</h2>
           <p className="muted">כל מספר בן 16 ספרות מתקבל. המספר נשאר בטופס הזה בלבד ולא נשמר.</p>
           <label className={invalid.card ? 'invalid' : ''}>

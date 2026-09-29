@@ -10,6 +10,9 @@ type Member = {
   name: string
   phone: string
   email: string
+  birthday: string
+  city: string
+  address: string
   points: number
   nextPercent: number
 }
@@ -138,6 +141,20 @@ export function AccountPage() {
                 טלפון
                 <input name="phone" required />
               </label>
+              <label>
+                יום הולדת
+                <input name="birthday" type="date" required />
+              </label>
+              <div className="split-fields">
+                <label>
+                  עיר
+                  <input name="city" required />
+                </label>
+                <label>
+                  כתובת
+                  <input name="address" required />
+                </label>
+              </div>
             </>
           ) : null}
           <label>
@@ -190,6 +207,8 @@ export function AccountPage() {
               <p className="muted">נקודות שנצברו</p>
             </>
           )}
+          {member.birthday ? <p className="muted">יום הולדת {member.birthday}</p> : null}
+          {member.city ? <p className="muted">{member.address}, {member.city}</p> : null}
         </article>
         <form className="panel form" onSubmit={book}>
           <h2>קביעת תור</h2>

@@ -22,7 +22,7 @@ type Appointment = {
   status: string
 }
 
-type Member = { id: string; name: string; email: string; phone: string; points: number; nextPercent: number }
+type Member = { id: string; name: string; email: string; phone: string; birthday: string; city: string; points: number; nextPercent: number }
 type Employee = { id: string; name: string; username: string; active: boolean }
 type Punch = { id: string; employeeName: string; kind: string; at: string; lat: number | null; lng: number | null }
 type Mail = { id: string; orderId: string; to: string; status: string; detail: string; createdAt: string }
@@ -41,12 +41,17 @@ export function AdminServices() {
   const [error, setError] = useState('')
 
   async function load() {
-    const [nextServices, nextAppointments] = await Promise.all([
-      adminFetch<Service[]>('/api/admin/services'),
-      adminFetch<Appointment[]>('/api/admin/appointments'),
-    ])
-    setServices(nextServices)
-    setAppointments(nextAppointments)
+    try {
+      const [nextServices, nextAppointments] = await Promise.all([
+        adminFetch<Service[]>('/api/admin/services'),
+        adminFetch<Appointment[]>('/api/admin/appointments'),
+      ])
+      setServices(Array.isArray(nextServices) ? nextServices : [])
+      setAppointments(Array.isArray(nextAppointments) ? nextAppointments : [])
+      setError('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את התורים')
+    }
   }
 
   useEffect(() => {
@@ -121,7 +126,7 @@ export function AdminServices() {
             <div>
               <strong>{service.name}</strong>
               <p className="muted">
-                {service.days.map((day) => DAY[day]).join(', ')} · {service.openTime}–{service.closeTime} · {service.slotMinutes} דק׳
+                {(Array.isArray(service.days) ? service.days : []).map((day) => DAY[day]).join(', ')} · {service.openTime}–{service.closeTime} · {service.slotMinutes} דק׳
               </p>
             </div>
             <button
@@ -173,13 +178,108 @@ export function AdminServices() {
   )
 }
 
+type ShopCategory = { id: string; name: string; blurb: string }
+
+export function AdminCategories() {
+  const [categories, setCategories] = useState<ShopCategory[]>([])
+  const [error, setError] = useState('')
+
+  async function load() {
+    try {
+      setCategories(await adminFetch<ShopCategory[]>('/api/admin/categories'))
+      setError('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון קטגוריות')
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    const form = new FormData(event.currentTarget)
+    try {
+      await adminFetch('/api/admin/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.get('name'), blurb: form.get('blurb') }),
+      })
+      event.currentTarget.reset()
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
+    }
+  }
+
+  return (
+    <div>
+      <h1>קטגוריות</h1>
+      <p className="muted">קטגוריה חדשה מופיעה בחנות, ואפשר לשייך אליה מוצרים במסך המוצר.</p>
+      <form className="panel form" onSubmit={create}>
+        <label>
+          שם
+          <input name="name" required />
+        </label>
+        <label>
+          תיאור קצר
+          <input name="blurb" />
+        </label>
+        {error ? <p className="form-errors">{error}</p> : null}
+        <button className="btn" type="submit">
+          הוספת קטגוריה
+        </button>
+      </form>
+      <div className="admin-table">
+        {categories.map((category) => (
+          <article key={category.id}>
+            <div>
+              <strong>{category.name}</strong>
+              <p className="muted">{category.blurb}</p>
+            </div>
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                const name = window.prompt('שם הקטגוריה', category.name)
+                if (!name) return
+                void adminFetch(`/api/admin/categories/${category.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name, blurb: category.blurb }),
+                }).then(load)
+              }}
+            >
+              עריכה
+            </button>
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                if (!window.confirm('למחוק את הקטגוריה?')) return
+                void adminFetch(`/api/admin/categories/${category.id}`, { method: 'DELETE' })
+                  .then(load)
+                  .catch((reason) => setError(reason instanceof Error ? reason.message : 'מחיקה נכשלה'))
+              }}
+            >
+              מחיקה
+            </button>
+          </article>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function AdminClub() {
   const [members, setMembers] = useState<Member[]>([])
   const [mail, setMail] = useState<Mail[]>([])
 
   useEffect(() => {
-    void adminFetch<Member[]>('/api/admin/customers').then(setMembers)
-    void adminFetch<Mail[]>('/api/admin/mail').then(setMail)
+    void adminFetch<Member[]>('/api/admin/customers').then(setMembers).catch(() => setMembers([]))
+    void adminFetch<Mail[]>('/api/admin/mail').then(setMail).catch(() => setMail([]))
   }, [])
 
   return (
@@ -194,6 +294,8 @@ export function AdminClub() {
               <strong>{member.name}</strong>
               <p className="muted">
                 {member.email} · {member.phone}
+                {member.birthday ? ` · יום הולדת ${member.birthday}` : ''}
+                {member.city ? ` · ${member.city}` : ''}
               </p>
             </div>
             <span>{member.points} נקודות</span>

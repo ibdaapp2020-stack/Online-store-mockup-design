@@ -1,4 +1,4 @@
-export type CategoryId = 'first-aid' | 'monitors' | 'vitamins' | 'hygiene' | 'ortho' | 'home'
+export type CategoryId = string
 
 export type Badge = 'new' | 'sale' | 'popular'
 

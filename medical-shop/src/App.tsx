@@ -10,7 +10,7 @@ import { ProductPage } from './pages/Product'
 import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
 import { AdminDashboard, AdminLogin, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
-import { AdminClub, AdminServices, AdminStaff } from './pages/admin-ops'
+import { AdminCategories, AdminClub, AdminServices, AdminStaff } from './pages/admin-ops'
 import { StaffPage } from './pages/Staff'
 
 export default function App() {
@@ -34,6 +34,7 @@ export default function App() {
           <Route path="/admin" element={<AdminShell />}>
             <Route index element={<AdminDashboard />} />
             <Route path="products" element={<AdminProducts />} />
+            <Route path="categories" element={<AdminCategories />} />
             <Route path="products/new" element={<AdminProductForm />} />
             <Route path="products/:id" element={<AdminProductForm />} />
             <Route path="orders" element={<AdminOrders />} />

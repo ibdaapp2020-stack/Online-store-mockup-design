@@ -91,6 +91,9 @@ function mapCustomer(row) {
     name: row.name,
     phone: row.phone,
     email: row.email,
+    birthday: row.birthday || '',
+    city: row.city || '',
+    address: row.address || '',
     points: Number(row.points) || 0,
     nextPercent: Number(row.next_percent) || 0,
   }
@@ -165,7 +168,10 @@ function ensureSchema(db) {
       password_hash TEXT NOT NULL,
       points INTEGER NOT NULL DEFAULT 0,
       next_percent INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      birthday TEXT NOT NULL DEFAULT '',
+      city TEXT NOT NULL DEFAULT '',
+      address TEXT NOT NULL DEFAULT ''
     )`,
     `CREATE TABLE IF NOT EXISTS customer_sessions (
       token TEXT PRIMARY KEY,
@@ -238,6 +244,13 @@ function ensureSchema(db) {
   } catch {
     /* column already exists */
   }
+  for (const column of ["birthday TEXT NOT NULL DEFAULT ''", "city TEXT NOT NULL DEFAULT ''", "address TEXT NOT NULL DEFAULT ''"]) {
+    try {
+      db.exec(`ALTER TABLE customers ADD COLUMN ${column}`)
+    } catch {
+      /* column already exists */
+    }
+  }
 
   const settings = readSettings(db)
   if (!settings) return
@@ -247,6 +260,32 @@ function ensureSchema(db) {
     )
     insert.run('measure', 'מדידת מדרסים', JSON.stringify([0, 1, 2, 3, 4]), '09:00', '17:00', 30, 1)
     insert.run('consult', 'ייעוץ אורתופדי', JSON.stringify([0, 2, 4]), '10:00', '16:00', 45, 1)
+  }
+  if (!db.prepare('SELECT * FROM employees WHERE username = ?').get('staff')) {
+    db.prepare('INSERT INTO employees (id, name, username, password_hash, active) VALUES (?, ?, ?, ?, ?)').run(
+      'emp-staff',
+      'עובד חנות',
+      'staff',
+      '0f19529125fb7decd58ba3314f4fa92b:58027e09df3482b602d12f18fef5a70e32e9851dfa13b464acf8d9e1f15642a3',
+      1,
+    )
+  }
+  if (!db.prepare('SELECT * FROM customers WHERE email = ?').get('customer@propharm.shop')) {
+    db.prepare(
+      'INSERT INTO customers (id, name, phone, email, password_hash, points, next_percent, created_at, birthday, city, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(
+      'cus-demo',
+      'לקוח לדוגמה',
+      '0501234567',
+      'customer@propharm.shop',
+      '68ef20584c0a37f7321b179349ee39eb:f2d321da2679aca5447dcb989aeca1d4f809fa9ce76fec7e54deda06dd53623b',
+      120,
+      0,
+      new Date().toISOString(),
+      '1990-05-12',
+      'שגב שלום',
+      'ח׳אלד בן אל-וליד',
+    )
   }
   if (settings.variantsSeeded) return
   for (const product of db.prepare('SELECT id FROM products').all()) {
@@ -372,16 +411,19 @@ export function registerClub(app, { db, requireAdmin }) {
     const phone = String(req.body?.phone ?? '').trim()
     const email = String(req.body?.email ?? '').trim().toLowerCase()
     const password = String(req.body?.password ?? '')
-    if (!name || !phone || !email.includes('@') || password.length < 4) {
-      return res.status(400).json({ error: 'שם, טלפון, אימייל וסיסמה (לפחות 4 תווים) הם שדות חובה' })
+    const birthday = String(req.body?.birthday ?? '').trim()
+    const city = String(req.body?.city ?? '').trim()
+    const address = String(req.body?.address ?? '').trim()
+    if (!name || !phone || !email.includes('@') || password.length < 4 || !birthday || !city || !address) {
+      return res.status(400).json({ error: 'שם, טלפון, אימייל, יום הולדת, עיר, כתובת וסיסמה הם שדות חובה' })
     }
     if (db.prepare('SELECT * FROM customers WHERE email = ?').get(email)) {
       return res.status(400).json({ error: 'האימייל כבר רשום' })
     }
     const customerId = id('cus')
     db.prepare(
-      'INSERT INTO customers (id, name, phone, email, password_hash, points, next_percent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(customerId, name, phone, email, hashPassword(password), 0, 0, new Date().toISOString())
+      'INSERT INTO customers (id, name, phone, email, password_hash, points, next_percent, created_at, birthday, city, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(customerId, name, phone, email, hashPassword(password), 0, 0, new Date().toISOString(), birthday, city, address)
     const token = randomBytes(24).toString('hex')
     db.prepare('INSERT INTO customer_sessions (token, customer_id, created_at) VALUES (?, ?, ?)').run(token, customerId, new Date().toISOString())
     cookie(res, 'medica_customer', token)
@@ -398,6 +440,26 @@ export function registerClub(app, { db, requireAdmin }) {
     db.prepare('INSERT INTO customer_sessions (token, customer_id, created_at) VALUES (?, ?, ?)').run(token, row.id, new Date().toISOString())
     cookie(res, 'medica_customer', token)
     res.json(mapCustomer(row))
+  })
+
+  app.patch('/api/account/profile', (req, res) => {
+    const row = customerFrom(req, db)
+    if (!row) return res.status(401).json({ error: 'נדרשת כניסה' })
+    const name = String(req.body?.name ?? row.name).trim()
+    const phone = String(req.body?.phone ?? row.phone).trim()
+    const birthday = String(req.body?.birthday ?? row.birthday ?? '').trim()
+    const city = String(req.body?.city ?? row.city ?? '').trim()
+    const address = String(req.body?.address ?? row.address ?? '').trim()
+    if (!name || !phone || !city || !address) return res.status(400).json({ error: 'חסרים פרטים' })
+    db.prepare('UPDATE customers SET name = ?, phone = ?, birthday = ?, city = ?, address = ? WHERE id = ?').run(
+      name,
+      phone,
+      birthday,
+      city,
+      address,
+      row.id,
+    )
+    res.json(mapCustomer(db.prepare('SELECT * FROM customers WHERE id = ?').get(row.id)))
   })
 
   app.post('/api/account/logout', (req, res) => {
@@ -591,6 +653,37 @@ export function registerClub(app, { db, requireAdmin }) {
     db.prepare('UPDATE appointments SET status = ? WHERE id = ?').run(status, current.id)
     const services = db.prepare('SELECT * FROM services').all().map(mapService)
     res.json(mapAppointment(db.prepare('SELECT * FROM appointments WHERE id = ?').get(current.id), services))
+  })
+
+  app.get('/api/admin/categories', requireAdmin, (_req, res) => {
+    res.json(db.prepare('SELECT * FROM categories').all().sort((a, b) => a.sort - b.sort))
+  })
+
+  app.post('/api/admin/categories', requireAdmin, (req, res) => {
+    const name = String(req.body?.name ?? '').trim()
+    const blurb = String(req.body?.blurb ?? '').trim()
+    if (!name) return res.status(400).json({ error: 'חסר שם קטגוריה' })
+    const categoryId = id('cat')
+    const sort = db.prepare('SELECT * FROM categories').all().reduce((max, row) => Math.max(max, Number(row.sort) || 0), -1) + 1
+    db.prepare('INSERT INTO categories (id, name, blurb, sort) VALUES (?, ?, ?, ?)').run(categoryId, name, blurb || name, sort)
+    res.status(201).json(db.prepare('SELECT * FROM categories WHERE id = ?').get(categoryId))
+  })
+
+  app.patch('/api/admin/categories/:id', requireAdmin, (req, res) => {
+    const current = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id)
+    if (!current) return res.status(404).json({ error: 'הקטגוריה לא נמצאה' })
+    const name = String(req.body?.name ?? current.name).trim()
+    const blurb = String(req.body?.blurb ?? current.blurb).trim()
+    if (!name) return res.status(400).json({ error: 'חסר שם קטגוריה' })
+    db.prepare('UPDATE categories SET name = ?, blurb = ? WHERE id = ?').run(name, blurb, current.id)
+    res.json(db.prepare('SELECT * FROM categories WHERE id = ?').get(current.id))
+  })
+
+  app.delete('/api/admin/categories/:id', requireAdmin, (req, res) => {
+    const used = db.prepare('SELECT id FROM products WHERE category = ?').all(req.params.id)
+    if (used.length) return res.status(400).json({ error: 'יש מוצרים בקטגוריה. העבירו אותם לפני המחיקה' })
+    db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id)
+    res.json({ ok: true })
   })
 
   app.get('/api/admin/customers', requireAdmin, (_req, res) => {

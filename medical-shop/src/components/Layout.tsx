@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { PICKUP } from '../pickup'
 import { useStore } from '../store'
 
 export function Layout() {
@@ -69,8 +70,8 @@ export function Layout() {
           <div>
             <strong>איסוף עצמי</strong>
             <p>
-              <a dir="ltr" href="https://www.google.com/maps?q=31.198055,34.835889" target="_blank" rel="noreferrer">
-                31°11'53.0"N 34°50'09.2"E
+              <a href={PICKUP.maps} target="_blank" rel="noreferrer">
+                {PICKUP.line}
               </a>
             </p>
           </div>

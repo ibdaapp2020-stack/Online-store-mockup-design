@@ -156,11 +156,17 @@ app.get('/api/admin/stats', requireAdmin, (_req, res) => {
   const products = db.prepare('SELECT COUNT(*) AS count FROM products').get()
   const lowStock = db.prepare('SELECT * FROM products WHERE active = 1 AND stock <= 5 ORDER BY stock').all().map(mapProduct)
   const recent = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 6').all().map(mapOrder)
+  const customers = db.prepare('SELECT * FROM customers').all().length
+  const appointments = db.prepare('SELECT * FROM appointments').all().filter((item) => item.status === 'booked').length
+  const employees = db.prepare('SELECT * FROM employees').all().length
   res.json({
     orders: orders.count,
     revenue: orders.revenue,
     open: open.count,
     products: products.count,
+    customers,
+    appointments,
+    employees,
     lowStock,
     recent,
   })

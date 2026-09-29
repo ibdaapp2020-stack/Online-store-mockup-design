@@ -3,6 +3,7 @@ import { productImage } from '../data'
 import { ProductCard } from '../components/ProductCard'
 import { CategoryIcon } from '../components/Icons'
 import { SkeletonGrid, useTitle } from '../components/ui'
+import { PICKUP } from '../pickup'
 import { useStore } from '../store'
 
 export function HomePage() {
@@ -43,8 +44,8 @@ export function HomePage() {
         <article>
           <h2>איסוף עצמי</h2>
           <p>
-            <a dir="ltr" href="https://www.google.com/maps?q=31.198055,34.835889" target="_blank" rel="noreferrer">
-              31°11'53.0"N 34°50'09.2"E
+            <a href={PICKUP.maps} target="_blank" rel="noreferrer">
+              {PICKUP.line}
             </a>
           </p>
         </article>

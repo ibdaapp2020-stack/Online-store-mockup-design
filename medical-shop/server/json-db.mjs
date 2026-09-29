@@ -61,6 +61,7 @@ function byId(rows, id) {
 function readOne(sql, args, state) {
   if (sql.startsWith('SELECT token, customer_id FROM customer_sessions')) return state.customer_sessions.find((row) => row.token === args[0])
   if (sql.startsWith('SELECT token, employee_id FROM staff_sessions')) return state.staff_sessions.find((row) => row.token === args[0])
+  if (sql.startsWith('SELECT * FROM categories WHERE id')) return byId(state.categories, args[0])
   if (sql.startsWith('SELECT * FROM customers WHERE email')) return state.customers.find((row) => row.email === args[0])
   if (sql.startsWith('SELECT * FROM customers WHERE id')) return byId(state.customers, args[0])
   if (sql.startsWith('SELECT * FROM employees WHERE username')) return state.employees.find((row) => row.username === args[0])
@@ -96,7 +97,11 @@ function readOne(sql, args, state) {
   return undefined
 }
 
-function readMany(sql, _args, state) {
+function readMany(sql, args, state) {
+  if (sql.startsWith('SELECT id FROM products WHERE category')) {
+    return state.products.filter((product) => product.category === args[0]).map((product) => ({ id: product.id }))
+  }
+  if (sql.startsWith('SELECT * FROM categories')) return [...state.categories]
   if (sql.startsWith('SELECT id FROM products')) return state.products.map((product) => ({ id: product.id }))
   if (sql.startsWith('SELECT * FROM services')) return [...state.services]
   if (sql.startsWith('SELECT * FROM appointments')) return [...state.appointments]
@@ -149,6 +154,17 @@ function writeOne(sql, args, state) {
     state.admin = { password_hash: args[0] }
     return
   }
+  if (sql.startsWith('UPDATE categories SET name')) {
+    const category = byId(state.categories, args[2])
+    if (!category) return
+    category.name = args[0]
+    category.blurb = args[1]
+    return
+  }
+  if (sql.startsWith('DELETE FROM categories')) {
+    state.categories = state.categories.filter((row) => row.id !== args[0])
+    return
+  }
   if (sql.startsWith('INSERT INTO categories')) {
     state.categories.push({ id: args[0], name: args[1], blurb: args[2], sort: args[3] })
     return
@@ -194,7 +210,20 @@ function writeOne(sql, args, state) {
       points: args[5],
       next_percent: args[6],
       created_at: args[7],
+      birthday: args[8] || '',
+      city: args[9] || '',
+      address: args[10] || '',
     })
+    return
+  }
+  if (sql.startsWith('UPDATE customers SET name')) {
+    const customer = byId(state.customers, args[5])
+    if (!customer) return
+    customer.name = args[0]
+    customer.phone = args[1]
+    customer.birthday = args[2]
+    customer.city = args[3]
+    customer.address = args[4]
     return
   }
   if (sql.startsWith('UPDATE customers SET points')) {

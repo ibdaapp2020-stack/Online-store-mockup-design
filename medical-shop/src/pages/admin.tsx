@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
-import { CATEGORIES, STATUS_LABEL } from '../data'
+import { STATUS_LABEL } from '../data'
 import { money } from '../pricing'
 import type { Order, OrderStatus, Product, ShopSettings } from '../types'
 
@@ -55,9 +55,17 @@ export function AdminShell() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    let active = true
     adminFetch('/api/admin/me')
-      .then(() => setReady(true))
-      .catch(() => navigate('/admin/login'))
+      .then(() => {
+        if (active) setReady(true)
+      })
+      .catch(() => {
+        if (active) navigate('/admin/login')
+      })
+    return () => {
+      active = false
+    }
   }, [navigate])
 
   if (!ready) return <p className="admin-wait">בודק הרשאה...</p>
@@ -67,15 +75,19 @@ export function AdminShell() {
       <aside className="admin-side">
         <img className="admin-logo" src="/logo.jpg" alt="" />
         <strong>PRO PHARM</strong>
+        <span className="admin-nav-label">חנות</span>
         <NavLink to="/admin" end>
           לוח בקרה
         </NavLink>
         <NavLink to="/admin/products">מוצרים</NavLink>
+        <NavLink to="/admin/categories">קטגוריות</NavLink>
         <NavLink to="/admin/orders">הזמנות</NavLink>
-        <NavLink to="/admin/settings">הגדרות</NavLink>
+        <span className="admin-nav-label">לקוחות</span>
         <NavLink to="/admin/services">תורים</NavLink>
         <NavLink to="/admin/club">מועדון</NavLink>
-        <NavLink to="/admin/staff">עובדים</NavLink>
+        <span className="admin-nav-label">צוות</span>
+        <NavLink to="/admin/staff">נוכחות</NavLink>
+        <NavLink to="/admin/settings">הגדרות</NavLink>
         <Link to="/">לאתר</Link>
         <button
           type="button"
@@ -98,6 +110,9 @@ type Stats = {
   revenue: number
   open: number
   products: number
+  customers: number
+  appointments: number
+  employees: number
   lowStock: Product[]
   recent: Order[]
 }
@@ -128,6 +143,28 @@ export function AdminDashboard() {
           <span>מחזור</span>
           <strong>{money(stats.revenue)}</strong>
         </article>
+        <article>
+          <span>לקוחות במועדון</span>
+          <strong>{stats.customers}</strong>
+        </article>
+        <article>
+          <span>תורים פתוחים</span>
+          <strong>{stats.appointments}</strong>
+        </article>
+        <article>
+          <span>עובדים</span>
+          <strong>{stats.employees}</strong>
+        </article>
+        <article>
+          <span>מלאי נמוך</span>
+          <strong>{stats.lowStock.length}</strong>
+        </article>
+      </div>
+      <div className="admin-links">
+        <Link className="btn" to="/admin/orders">הזמנות</Link>
+        <Link className="btn secondary" to="/admin/services">תורים</Link>
+        <Link className="btn secondary" to="/admin/club">מועדון</Link>
+        <Link className="btn secondary" to="/admin/staff">נוכחות</Link>
       </div>
       <h2>מלאי נמוך</h2>
       <ul className="admin-list">
@@ -213,8 +250,13 @@ export function AdminProductForm() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [form, setForm] = useState(EMPTY)
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    void adminFetch<Array<{ id: string; name: string }>>('/api/admin/categories').then(setCategories).catch(() => setCategories([]))
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -271,7 +313,7 @@ export function AdminProductForm() {
       <label>
         קטגוריה
         <select value={form.category} onChange={(event) => set('category', event.target.value)}>
-          {CATEGORIES.map((category) => (
+          {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
             </option>
