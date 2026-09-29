@@ -20,13 +20,7 @@ export function Layout() {
         <header className="site-header">
           <div className="header-inner">
             <NavLink to="/" className="logo" end>
-              <span className="logo-mark" aria-hidden="true">
-                +
-              </span>
-              <span>
-                מדיקה
-                <small>{settings.tagline}</small>
-              </span>
+              <img src="/logo.jpg" alt="PRO PHARM" />
             </NavLink>
             <form
               className="search"
@@ -65,12 +59,33 @@ export function Layout() {
         <Outlet />
       </main>
       <footer className="footer">
-        <div className="container">
-          <strong>האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.</strong>
-          <p>{settings.disclaimer}</p>
-          <p>
-            <a href="/admin">כניסת ניהול</a>
-          </p>
+        <div className="container footer-grid">
+          <div>
+            <img className="footer-logo" src="/logo.jpg" alt="" />
+            <strong>{settings.storeName}</strong>
+            <p>{settings.tagline}</p>
+          </div>
+          <div>
+            <strong>איסוף עצמי</strong>
+            <p>
+              <a dir="ltr" href="https://www.google.com/maps?q=31.198055,34.835889" target="_blank" rel="noreferrer">
+                31°11'53.0"N 34°50'09.2"E
+              </a>
+            </p>
+          </div>
+          <div>
+            <strong>יצירת קשר</strong>
+            <p>
+              <a href="mailto:propharm2026@gmail.com">propharm2026@gmail.com</a>
+            </p>
+          </div>
+          <div>
+            <strong>האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.</strong>
+            <p>{settings.disclaimer}</p>
+            <p>
+              <a href="/admin">כניסת ניהול</a>
+            </p>
+          </div>
         </div>
       </footer>
       {toast ? (

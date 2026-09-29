@@ -34,7 +34,7 @@ export function AdminLogin() {
   return (
     <main className="admin-login">
       <form className="panel form" onSubmit={onSubmit}>
-        <p className="eyebrow">מדיקה</p>
+        <img className="admin-logo" src="/logo.jpg" alt="PRO PHARM" />
         <h1>סופר אדמין</h1>
         <label>
           סיסמה
@@ -65,7 +65,8 @@ export function AdminShell() {
   return (
     <div className="admin-app">
       <aside className="admin-side">
-        <strong>ניהול מדיקה</strong>
+        <img className="admin-logo" src="/logo.jpg" alt="" />
+        <strong>PRO PHARM</strong>
         <NavLink to="/admin" end>
           לוח בקרה
         </NavLink>

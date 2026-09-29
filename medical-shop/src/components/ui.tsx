@@ -9,7 +9,7 @@ const BADGE_LABEL: Record<Badge, string> = {
 
 export function useTitle(title: string) {
   useEffect(() => {
-    document.title = `${title} · מדיקה`
+    document.title = `${title} · PRO PHARM`
   }, [title])
 }
 

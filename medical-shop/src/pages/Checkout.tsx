@@ -92,6 +92,13 @@ export function CheckoutPage() {
           }}
         >
           <h2>פרטי מקבל</h2>
+          <p className="muted">
+            איסוף עצמי:{' '}
+            <a dir="ltr" href="https://www.google.com/maps?q=31.198055,34.835889" target="_blank" rel="noreferrer">
+              31°11'53.0"N 34°50'09.2"E
+            </a>
+            . למשלוח עד הבית מלאו כתובת.
+          </p>
           <label className={invalid.name ? 'invalid' : ''}>
             שם מלא
             <input value={form.name} onChange={(event) => update('name', event.target.value)} autoComplete="off" />

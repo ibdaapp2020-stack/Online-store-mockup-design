@@ -13,7 +13,7 @@ export let bootError = null
 const seed = loadSeedFile()
 
 export const db = onVercel
-  ? createJsonDb(join('/tmp', 'medica-shop.json'), seed)
+  ? createJsonDb(join('/tmp', 'medica-shop-propharm.json'), seed)
   : await openSqlite()
 
 function loadSeedFile() {
@@ -85,8 +85,8 @@ export function mapOrder(row) {
 }
 
 const DEFAULT_SETTINGS = {
-  storeName: 'מדיקה',
-  tagline: 'מוצרים רפואיים לבית',
+  storeName: 'PRO PHARM',
+  tagline: 'ORTHO & MOBILITY',
   banner: '',
   showBanner: false,
   disclaimer: 'האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי. המוצרים המוצגים הם ללא מרשם.',

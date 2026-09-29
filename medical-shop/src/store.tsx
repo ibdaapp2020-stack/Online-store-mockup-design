@@ -7,8 +7,8 @@ const COUPON_KEY = 'medica-coupon'
 const RECENT_KEY = 'medica-recent-orders'
 
 const FALLBACK_SETTINGS: ShopSettings = {
-  storeName: 'מדיקה',
-  tagline: 'מוצרים רפואיים לבית',
+  storeName: 'PRO PHARM',
+  tagline: 'ORTHO & MOBILITY',
   banner: '',
   showBanner: false,
   disclaimer: 'האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.',

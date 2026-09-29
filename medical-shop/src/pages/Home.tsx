@@ -17,8 +17,8 @@ export function HomePage() {
       <section className="hero">
         <div>
           <p className="eyebrow">{settings.storeName} · ללא מרשם</p>
-          <h1>מוצרים רפואיים לבית</h1>
-          <p className="lede">עזרה ראשונה, מדדים, ויטמינים, היגיינה, תמיכות וציוד ביתי. ההזמנות נשמרות ומנוהלות בחנות.</p>
+          <h1>{settings.tagline}</h1>
+          <p className="lede">עזרה ראשונה, מדדים, ויטמינים, היגיינה, תמיכות וציוד ביתי. אפשר גם איסוף עצמי מהחנות.</p>
           <div className="hero-actions">
             <Link className="btn" to="/catalog">
               לקטלוג
@@ -40,6 +40,14 @@ export function HomePage() {
       </section>
 
       <section className="trust" aria-label="שירות">
+        <article>
+          <h2>איסוף עצמי</h2>
+          <p>
+            <a dir="ltr" href="https://www.google.com/maps?q=31.198055,34.835889" target="_blank" rel="noreferrer">
+              31°11'53.0"N 34°50'09.2"E
+            </a>
+          </p>
+        </article>
         <article>
           <h2>משלוח</h2>
           <p>חינם מעל {settings.freeFrom} ₪. מתחת לסכום הזה נוסף דמי משלוח.</p>
