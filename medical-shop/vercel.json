@@ -1,12 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "app": {
-      "root": ".",
-      "framework": "vite"
-    },
     "medical-shop": {
-      "root": "medical-shop",
+      "root": ".",
       "framework": "vite",
       "rewrites": [
         { "source": "/(.*)", "destination": "/index.html" }
@@ -21,7 +17,7 @@
       ]
     },
     "medical-api": {
-      "root": "medical-shop",
+      "root": ".",
       "framework": "express",
       "entrypoint": "server/index.mjs"
     }
