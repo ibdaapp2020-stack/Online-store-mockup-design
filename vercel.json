@@ -28,8 +28,10 @@
   },
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://metallica-thomas-bob-cadillac.trycloudflare.com/api/:path*"
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "medical-api"
+      }
     },
     {
       "source": "/(.*)",

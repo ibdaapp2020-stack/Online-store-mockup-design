@@ -285,6 +285,6 @@ app.patch('/api/admin/settings', requireAdmin, (req, res) => {
   res.json(next)
 })
 
-app.listen(5180, '127.0.0.1', () => {
-  console.log('API http://127.0.0.1:5180')
-})
+const port = Number(process.env.PORT) || 5180
+if (process.env.VERCEL) app.listen(port)
+else app.listen(port, '127.0.0.1', () => console.log(`API http://127.0.0.1:${port}`))

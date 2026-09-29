@@ -1,15 +1,26 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { DatabaseSync } from 'node:sqlite'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import esbuild from 'esbuild'
+import { createJsonDb } from './json-db.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = join(root, 'data')
-mkdirSync(dataDir, { recursive: true })
+const serverDir = dirname(fileURLToPath(import.meta.url))
+const onVercel = Boolean(process.env.VERCEL)
 
-export const db = new DatabaseSync(join(dataDir, 'shop.db'))
+export const db = onVercel
+  ? createJsonDb(
+      join('/tmp', 'medica-shop.json'),
+      JSON.parse(readFileSync(join(serverDir, 'catalog-seed.json'), 'utf8')),
+    )
+  : await openSqlite()
+
+async function openSqlite() {
+  mkdirSync(dataDir, { recursive: true })
+  const { DatabaseSync } = await import('node:sqlite')
+  return new DatabaseSync(join(dataDir, 'shop.db'))
+}
 
 export function loadEnv() {
   const file = join(root, '.env')
@@ -94,6 +105,7 @@ export function quoteOrder(subtotal, couponOn, settings) {
 }
 
 async function loadSeed() {
+  const esbuild = (await import('esbuild')).default
   const outfile = join(dataDir, 'seed.mjs')
   await esbuild.build({
     entryPoints: [join(root, 'src/data.ts')],
