@@ -8,6 +8,9 @@
     "medical-shop": {
       "root": "medical-shop",
       "framework": "vite",
+      "rewrites": [
+        { "source": "/(.*)", "destination": "/index.html" }
+      ],
       "bindings": [
         {
           "type": "service",
