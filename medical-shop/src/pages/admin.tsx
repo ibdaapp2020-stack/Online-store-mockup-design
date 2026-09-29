@@ -1,4 +1,4 @@
-import { Component, FormEvent, useEffect, useState, type ReactNode } from 'react'
+import { Component, FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import { STATUS_LABEL } from '../data'
 import { money } from '../pricing'
@@ -59,7 +59,7 @@ export function AdminShell() {
     fetch('/api/admin/me', { credentials: 'include' })
       .then((response) => {
         if (!active) return
-        if (response.status === 401) navigate('/admin/login')
+        if (response.status === 401) navigate('/account?role=admin')
         else setReady(true)
       })
       .catch(() => {
@@ -94,7 +94,7 @@ export function AdminShell() {
         <button
           type="button"
           onClick={() => {
-            void adminFetch('/api/admin/logout', { method: 'POST' }).then(() => navigate('/admin/login'))
+            void adminFetch('/api/admin/logout', { method: 'POST' }).then(() => navigate('/account?role=admin'))
           }}
         >
           יציאה
@@ -277,7 +277,38 @@ const EMPTY = {
   image: '',
   sizes: '',
   colors: '',
+  others: '',
+  otherLabel: 'אחר',
+  chooseSize: false,
+  chooseColor: false,
+  chooseOther: false,
   active: true,
+  variantStocks: {} as Record<string, string>,
+}
+
+function listValues(value: string) {
+  return value.split(/[,،|\n]/).map((item) => item.trim()).filter(Boolean)
+}
+
+function comboKey(row: { size: string; color: string; other: string }) {
+  return `${row.size}|${row.color}|${row.other}`
+}
+
+function optionCombos(form: typeof EMPTY) {
+  if (!form.chooseSize && !form.chooseColor && !form.chooseOther) return []
+  const sizes = form.chooseSize ? listValues(form.sizes) : ['']
+  const colors = form.chooseColor ? listValues(form.colors) : ['']
+  const others = form.chooseOther ? listValues(form.others) : ['']
+  if (form.chooseSize && sizes.length === 0) return []
+  if (form.chooseColor && colors.length === 0) return []
+  if (form.chooseOther && others.length === 0) return []
+  const rows: Array<{ size: string; color: string; other: string }> = []
+  for (const size of form.chooseSize ? sizes : ['']) {
+    for (const color of form.chooseColor ? colors : ['']) {
+      for (const other of form.chooseOther ? others : ['']) rows.push({ size, color, other })
+    }
+  }
+  return rows
 }
 
 export function AdminProductForm() {
@@ -311,7 +342,13 @@ export function AdminProductForm() {
         image: product.image ?? '',
         sizes: (product.sizes ?? []).join(', '),
         colors: (product.colors ?? []).join(', '),
+        others: (product.choices?.others ?? []).join(', '),
+        otherLabel: product.choices?.otherLabel || 'אחר',
+        chooseSize: Boolean(product.choices?.size || product.sizes?.length),
+        chooseColor: Boolean(product.choices?.color || product.colors?.length),
+        chooseOther: Boolean(product.choices?.other),
         active: product.active !== false,
+        variantStocks: Object.fromEntries((product.variants ?? []).map((row) => [comboKey(row), String(row.stock)])),
       })
     })
   }, [id])
@@ -320,7 +357,19 @@ export function AdminProductForm() {
     event.preventDefault()
     setError('')
     const body = new FormData()
-    Object.entries(form).forEach(([key, value]) => body.append(key, String(value)))
+    Object.entries(form).forEach(([key, value]) => {
+      if (key === 'variantStocks') return
+      body.append(key, String(value))
+    })
+    const combos = optionCombos(form)
+    body.append('choices', JSON.stringify({
+      size: form.chooseSize,
+      color: form.chooseColor,
+      other: form.chooseOther,
+      otherLabel: form.otherLabel,
+      others: listValues(form.others),
+    }))
+    body.append('variants', JSON.stringify(combos.map((row) => ({ ...row, stock: Number(form.variantStocks[comboKey(row)] || 0) }))))
     if (file) body.append('imageFile', file)
     try {
       await adminFetch(id ? `/api/admin/products/${id}` : '/api/admin/products', {
@@ -336,6 +385,8 @@ export function AdminProductForm() {
   function set(key: keyof typeof EMPTY, value: string | boolean) {
     setForm((current) => ({ ...current, [key]: value }))
   }
+
+  const combos = useMemo(() => optionCombos(form), [form])
 
   return (
     <form className="panel form admin-form" onSubmit={onSubmit}>
@@ -387,14 +438,61 @@ export function AdminProductForm() {
         מפרט, שורה לכל פריט
         <textarea value={form.specs} onChange={(event) => set('specs', event.target.value)} rows={4} />
       </label>
-      <label>
-        מידות, מופרדות בפסיק. לדוגמה S, M, L, XL. ריק אם אין מידה
-        <input value={form.sizes} onChange={(event) => set('sizes', event.target.value)} />
-      </label>
-      <label>
-        צבעים, מופרדים בפסיק. ריק אם אין צבע
-        <input value={form.colors} onChange={(event) => set('colors', event.target.value)} />
-      </label>
+      <div className="choice-row">
+        <label className="check">
+          <input type="checkbox" checked={form.chooseSize} onChange={(event) => set('chooseSize', event.target.checked)} />
+          מידה
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={form.chooseColor} onChange={(event) => set('chooseColor', event.target.checked)} />
+          צבע
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={form.chooseOther} onChange={(event) => set('chooseOther', event.target.checked)} />
+          אפשרות נוספת
+        </label>
+      </div>
+      {form.chooseSize ? (
+        <label>
+          מידות, מופרדות בפסיק. לדוגמה S, M, L, XL
+          <input value={form.sizes} onChange={(event) => set('sizes', event.target.value)} />
+        </label>
+      ) : null}
+      {form.chooseColor ? (
+        <label>
+          צבעים, מופרדים בפסיק
+          <input value={form.colors} onChange={(event) => set('colors', event.target.value)} />
+        </label>
+      ) : null}
+      {form.chooseOther ? (
+        <div className="split-fields">
+          <label>
+            שם האפשרות
+            <input value={form.otherLabel} onChange={(event) => set('otherLabel', event.target.value)} />
+          </label>
+          <label>
+            ערכים, מופרדים בפסיק
+            <input value={form.others} onChange={(event) => set('others', event.target.value)} />
+          </label>
+        </div>
+      ) : null}
+      {combos.length ? (
+        <div className="stack-list">
+          <strong>מלאי לכל בחירה</strong>
+          {combos.map((row) => (
+            <label key={comboKey(row)}>
+              {[row.size, row.color, row.other].filter(Boolean).join(' · ')}
+              <input
+                inputMode="numeric"
+                value={form.variantStocks[comboKey(row)] ?? ''}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, variantStocks: { ...current.variantStocks, [comboKey(row)]: event.target.value } }))
+                }
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
       <label>
         כתובת תמונה
         <input value={form.image} onChange={(event) => set('image', event.target.value)} />

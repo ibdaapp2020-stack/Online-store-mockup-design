@@ -8,7 +8,7 @@ import { BadgeTag, Stars } from './ui'
 export function ProductCard({ product }: { product: Product }) {
   const { addToCart } = useStore()
   const soldOut = product.stock <= 0
-  const needsChoice = Boolean(product.sizes?.length || product.colors?.length)
+  const needsChoice = Boolean(product.choices?.size || product.choices?.color || product.choices?.other || product.sizes?.length || product.colors?.length)
   return (
     <article className="card">
       <Link to={`/p/${product.id}`} className="card-media">

@@ -4,7 +4,7 @@ import { productImage } from '../data'
 import { EmptyState, QtyControl, useTitle } from '../components/ui'
 import { money } from '../pricing'
 import { cartKey, useStore } from '../store'
-import { variantLabel } from '../types'
+import { variantLabel, optionStock } from '../types'
 
 export function CartPage() {
   useTitle('סל')
@@ -33,7 +33,7 @@ export function CartPage() {
       <div className="cart-layout">
         <div className="panel lines">
           {cart.map((line) => (
-            <article key={cartKey(line.productId, line.size, line.color)} className="cart-line">
+            <article key={cartKey(line.productId, line.size, line.color, line.other)} className="cart-line">
               <div className="line-swatch">
                 <img src={productImage(line.product)} alt="" />
               </div>
@@ -41,8 +41,8 @@ export function CartPage() {
                 <Link to={`/p/${line.productId}`}>{line.product.name}</Link>
                 {variantLabel(line) ? <p className="muted">{variantLabel(line)}</p> : null}
                 <p className="muted">{money(line.product.price)} ליחידה</p>
-                <QtyControl qty={line.qty} max={line.product.stock} onChange={(qty) => setQty(cartKey(line.productId, line.size, line.color), qty)} />
-                <button type="button" className="text-btn" onClick={() => removeFromCart(cartKey(line.productId, line.size, line.color))}>
+                <QtyControl qty={line.qty} max={optionStock(line.product, line)} onChange={(qty) => setQty(cartKey(line.productId, line.size, line.color, line.other), qty)} />
+                <button type="button" className="text-btn" onClick={() => removeFromCart(cartKey(line.productId, line.size, line.color, line.other))}>
                   הסרה
                 </button>
               </div>

@@ -19,6 +19,18 @@ export type Product = {
   active?: boolean
   sizes?: string[]
   colors?: string[]
+  choices?: { size: boolean; color: boolean; other: boolean; otherLabel: string; others: string[] }
+  variants?: VariantRow[]
+}
+
+export type VariantRow = { size: string; color: string; other: string; stock: number }
+
+export function optionStock(product: Product, pick: { size?: string; color?: string; other?: string } = {}) {
+  const rows = product.variants ?? []
+  if (!rows.length) return product.stock
+  return rows
+    .filter((row) => (!pick.size || row.size === pick.size) && (!pick.color || row.color === pick.color) && (!pick.other || row.other === pick.other))
+    .reduce((sum, row) => sum + row.stock, 0)
 }
 
 export type ShopSettings = {
@@ -52,10 +64,11 @@ export type CartLine = {
   qty: number
   size?: string
   color?: string
+  other?: string
 }
 
-export function variantLabel(item: { size?: string; color?: string }) {
-  return [item.size ? `מידה ${item.size}` : '', item.color ? `צבע ${item.color}` : ''].filter(Boolean).join(' · ')
+export function variantLabel(item: { size?: string; color?: string; other?: string }) {
+  return [item.size ? `מידה ${item.size}` : '', item.color ? `צבע ${item.color}` : '', item.other || ''].filter(Boolean).join(' · ')
 }
 
 export type Customer = {

@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { quote, type Quote } from './pricing'
 import type { CartLine, Category, Customer, Order, Product, ShopSettings } from './types'
+import { optionStock } from './types'
 
 const CART_KEY = 'medica-cart'
 
-export function cartKey(productId: string, size?: string, color?: string) {
-  return `${productId}::${size ?? ''}::${color ?? ''}`
+export function cartKey(productId: string, size?: string, color?: string, other?: string) {
+  return `${productId}::${size ?? ''}::${color ?? ''}::${other ?? ''}`
 }
 const COUPON_KEY = 'medica-coupon'
 const RECENT_KEY = 'medica-recent-orders'
@@ -43,7 +44,7 @@ type StoreValue = {
   totals: Quote
   cartCount: number
   refreshCatalog: () => Promise<void>
-  addToCart: (productId: string, qty?: number, options?: { size?: string; color?: string }) => void
+  addToCart: (productId: string, qty?: number, options?: { size?: string; color?: string; other?: string }) => void
   setQty: (key: string, qty: number) => void
   removeFromCart: (key: string) => void
   applyCoupon: (code: string) => boolean
@@ -139,35 +140,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const cartCount = detailed.reduce((sum, line) => sum + line.qty, 0)
 
-  function addToCart(productId: string, qty = 1, options?: { size?: string; color?: string }) {
+  function addToCart(productId: string, qty = 1, options?: { size?: string; color?: string; other?: string }) {
     const product = products.find((item) => item.id === productId)
-    if (!product || product.stock <= 0 || qty <= 0) return
     const size = options?.size || undefined
     const color = options?.color || undefined
-    const key = cartKey(productId, size, color)
+    const other = options?.other || undefined
+    const available = product ? optionStock(product, { size, color, other }) : 0
+    if (!product || available <= 0 || qty <= 0) return
+    const key = cartKey(productId, size, color, other)
     setCart((prev) => {
-      const existing = prev.find((line) => cartKey(line.productId, line.size, line.color) === key)
-      const nextQty = Math.min(product.stock, (existing?.qty ?? 0) + qty)
-      if (existing) return prev.map((line) => (cartKey(line.productId, line.size, line.color) === key ? { ...line, qty: nextQty } : line))
-      return [...prev, { productId, qty: nextQty, size, color }]
+      const existing = prev.find((line) => cartKey(line.productId, line.size, line.color, line.other) === key)
+      const nextQty = Math.min(available, (existing?.qty ?? 0) + qty)
+      if (existing) return prev.map((line) => (cartKey(line.productId, line.size, line.color, line.other) === key ? { ...line, qty: nextQty } : line))
+      return [...prev, { productId, qty: nextQty, size, color, other }]
     })
     notify('נוסף לסל')
   }
 
   function setQty(key: string, qty: number) {
-    const current = cart.find((line) => cartKey(line.productId, line.size, line.color) === key)
+    const current = cart.find((line) => cartKey(line.productId, line.size, line.color, line.other) === key)
     const product = products.find((item) => item.id === current?.productId)
     if (!current || !product) return
     if (qty <= 0) {
-      setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color) !== key))
+      setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color, line.other) !== key))
       return
     }
-    const nextQty = Math.min(product.stock, qty)
-    setCart((prev) => prev.map((line) => (cartKey(line.productId, line.size, line.color) === key ? { ...line, qty: nextQty } : line)))
+    const nextQty = Math.min(optionStock(product, current), qty)
+    setCart((prev) => prev.map((line) => (cartKey(line.productId, line.size, line.color, line.other) === key ? { ...line, qty: nextQty } : line)))
   }
 
   function removeFromCart(key: string) {
-    setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color) !== key))
+    setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color, line.other) !== key))
   }
 
   function applyCoupon(code: string) {
@@ -193,7 +196,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({
         customer,
         coupon,
-        items: detailed.map((line) => ({ productId: line.productId, qty: line.qty, size: line.size, color: line.color })),
+        items: detailed.map((line) => ({ productId: line.productId, qty: line.qty, size: line.size, color: line.color, other: line.other })),
       }),
     })
     const data = (await response.json()) as Order & { error?: string }

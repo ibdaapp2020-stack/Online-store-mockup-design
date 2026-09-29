@@ -92,7 +92,7 @@ function writeSettings(db, settings) {
 }
 
 export function publicSettings(settings) {
-  const { smtpPass, variantsSeeded, ...rest } = settings
+  const { smtpPass, variantsSeeded, variantStockReady, ...rest } = settings
   return rest
 }
 
@@ -377,6 +377,18 @@ function ensureSchema(db) {
       /* column already exists */
     }
   }
+  for (const column of ["choices TEXT NOT NULL DEFAULT '{}'", "variants TEXT NOT NULL DEFAULT '[]'"]) {
+    try {
+      db.exec(`ALTER TABLE products ADD COLUMN ${column}`)
+    } catch {
+      /* column already exists */
+    }
+  }
+  try {
+    db.exec("ALTER TABLE attendance ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+  } catch {
+    /* column already exists */
+  }
   for (const column of ["pay_mode TEXT NOT NULL DEFAULT 'hour'", 'hourly_rate REAL NOT NULL DEFAULT 0', 'global_pay REAL NOT NULL DEFAULT 0']) {
     try {
       db.exec(`ALTER TABLE employees ADD COLUMN ${column}`)
@@ -420,37 +432,188 @@ function ensureSchema(db) {
       'ח׳אלד בן אל-וליד',
     )
   }
-  if (settings.variantsSeeded) return
-  for (const product of db.prepare('SELECT id FROM products').all()) {
-    const sizes = SIZE_IDS.has(product.id) ? ['S', 'M', 'L', 'XL'] : []
-    const colors = COLOR_IDS[product.id] ?? []
-    if (sizes.length || colors.length) {
-      db.prepare('UPDATE products SET sizes = ?, colors = ? WHERE id = ?').run(JSON.stringify(sizes), JSON.stringify(colors), product.id)
+  if (!settings.variantsSeeded) {
+    for (const product of db.prepare('SELECT id FROM products').all()) {
+      const sizes = SIZE_IDS.has(product.id) ? ['S', 'M', 'L', 'XL'] : []
+      const colors = COLOR_IDS[product.id] ?? []
+      if (sizes.length || colors.length) {
+        db.prepare('UPDATE products SET sizes = ?, colors = ? WHERE id = ?').run(JSON.stringify(sizes), JSON.stringify(colors), product.id)
+      }
+    }
+    writeSettings(db, { ...settings, variantsSeeded: true })
+    settings.variantsSeeded = true
+  }
+  if (!readSettings(db)?.variantStockReady) {
+    for (const product of db.prepare('SELECT * FROM products').all()) {
+      if (readVariants(product).length) continue
+      const sizes = asList(product.sizes)
+      const colors = asList(product.colors)
+      if (!sizes.length && !colors.length) continue
+      const sizeValues = sizes.length ? sizes : ['']
+      const colorValues = colors.length ? colors : ['']
+      const rows = []
+      for (const size of sizeValues) {
+        for (const color of colorValues) rows.push({ size, color, other: '', stock: 0 })
+      }
+      const each = Math.floor(Number(product.stock || 0) / rows.length)
+      rows.forEach((row, index) => {
+        row.stock = each + (index === 0 ? Number(product.stock || 0) - each * rows.length : 0)
+      })
+      db.prepare('UPDATE products SET choices = ?, variants = ?, sizes = ?, colors = ?, stock = ? WHERE id = ?').run(
+        JSON.stringify({ size: sizes.length > 0, color: colors.length > 0, other: false, otherLabel: 'אחר', others: [] }),
+        JSON.stringify(rows),
+        JSON.stringify(sizes),
+        JSON.stringify(colors),
+        rows.reduce((sum, row) => sum + row.stock, 0),
+        product.id,
+      )
+    }
+    writeSettings(db, { ...readSettings(db), variantStockReady: true })
+  }
+}
+
+function splitList(value) {
+  return String(value ?? '')
+    .split(/[,،|\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function readChoices(product) {
+  let raw = product.choices
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw)
+    } catch {
+      raw = null
     }
   }
-  writeSettings(db, { ...settings, variantsSeeded: true })
+  const sizes = asList(product.sizes)
+  const colors = asList(product.colors)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { size: sizes.length > 0, color: colors.length > 0, other: false, otherLabel: 'אחר', others: [] }
+  }
+  return {
+    size: Boolean(raw.size),
+    color: Boolean(raw.color),
+    other: Boolean(raw.other),
+    otherLabel: String(raw.otherLabel || 'אחר'),
+    others: asList(raw.others),
+  }
+}
+
+function readVariants(product) {
+  let raw = product.variants
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw)
+    } catch {
+      raw = []
+    }
+  }
+  if (!Array.isArray(raw)) return []
+  return raw.map((row) => ({
+    size: String(row.size || ''),
+    color: String(row.color || ''),
+    other: String(row.other || ''),
+    stock: Math.max(0, Math.round(Number(row.stock) || 0)),
+  }))
 }
 
 export function saveProductOptions(db, productId, body) {
-  const sizes = String(body.sizes ?? '')
-    .split(/[,|\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-  const colors = String(body.colors ?? '')
-    .split(/[,|\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-  db.prepare('UPDATE products SET sizes = ?, colors = ? WHERE id = ?').run(JSON.stringify(sizes), JSON.stringify(colors), productId)
+  let incoming = body.choices
+  if (typeof incoming === 'string' && incoming) {
+    try {
+      incoming = JSON.parse(incoming)
+    } catch {
+      incoming = null
+    }
+  }
+  let variants = body.variants
+  if (typeof variants === 'string' && variants) {
+    try {
+      variants = JSON.parse(variants)
+    } catch {
+      variants = []
+    }
+  }
+  const choices = {
+    size: Boolean(incoming?.size),
+    color: Boolean(incoming?.color),
+    other: Boolean(incoming?.other),
+    otherLabel: String(incoming?.otherLabel || 'אחר').trim() || 'אחר',
+    others: incoming?.other ? splitList(incoming.others ?? body.others) : [],
+  }
+  if (!incoming) {
+    const sizes = splitList(body.sizes)
+    const colors = splitList(body.colors)
+    choices.size = sizes.length > 0
+    choices.color = colors.length > 0
+  }
+  const sizes = choices.size ? splitList(body.sizes) : []
+  const colors = choices.color ? splitList(body.colors) : []
+  const rows = (Array.isArray(variants) ? variants : [])
+    .map((row) => ({
+      size: choices.size ? String(row.size || '') : '',
+      color: choices.color ? String(row.color || '') : '',
+      other: choices.other ? String(row.other || '') : '',
+      stock: Math.max(0, Math.round(Number(row.stock) || 0)),
+    }))
+    .filter((row) => row.size || row.color || row.other)
+  const stock = rows.reduce((sum, row) => sum + row.stock, 0)
+  if (rows.length) {
+    db.prepare('UPDATE products SET choices = ?, variants = ?, sizes = ?, colors = ?, stock = ? WHERE id = ?').run(
+      JSON.stringify(choices),
+      JSON.stringify(rows),
+      JSON.stringify(sizes),
+      JSON.stringify(colors),
+      stock,
+      productId,
+    )
+    return
+  }
+  db.prepare('UPDATE products SET choices = ?, variants = ?, sizes = ?, colors = ? WHERE id = ?').run(
+    JSON.stringify(choices),
+    '[]',
+    JSON.stringify(sizes),
+    JSON.stringify(colors),
+    productId,
+  )
 }
 
 export function lineOptions(product, line) {
-  const sizes = asList(product.sizes)
-  const colors = asList(product.colors)
-  const size = String(line.size ?? '').trim()
-  const color = String(line.color ?? '').trim()
-  if (sizes.length && !sizes.includes(size)) throw new Error(`יש לבחור מידה עבור ${product.name}`)
-  if (colors.length && !colors.includes(color)) throw new Error(`יש לבחור צבע עבור ${product.name}`)
-  return { size: size || undefined, color: color || undefined }
+  const choices = readChoices(product)
+  const size = choices.size ? String(line.size ?? '').trim() : ''
+  const color = choices.color ? String(line.color ?? '').trim() : ''
+  const other = choices.other ? String(line.other ?? '').trim() : ''
+  if (choices.size && !asList(product.sizes).includes(size)) throw new Error(`יש לבחור מידה אחת עבור ${product.name}`)
+  if (choices.color && !asList(product.colors).includes(color)) throw new Error(`יש לבחור צבע אחד עבור ${product.name}`)
+  if (choices.other && !choices.others.includes(other)) throw new Error(`יש לבחור ${choices.otherLabel} אחד עבור ${product.name}`)
+  const variants = readVariants(product)
+  if (variants.length) {
+    const match = variants.find((row) => row.size === size && row.color === color && row.other === other)
+    if (!match || match.stock < Number(line.qty)) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
+  }
+  return {
+    size: size || undefined,
+    color: color || undefined,
+    other: other || undefined,
+    tracked: variants.length > 0,
+    sizeValue: size,
+    colorValue: color,
+    otherValue: other,
+  }
+}
+
+export function takeVariantStock(db, product, options, qty) {
+  const next = readVariants(product).map((row) =>
+    row.size === options.sizeValue && row.color === options.colorValue && row.other === options.otherValue ? { ...row, stock: row.stock - qty } : row,
+  )
+  db.prepare('UPDATE products SET variants = ?, stock = ? WHERE id = ?').run(
+    JSON.stringify(next),
+    next.reduce((sum, row) => sum + row.stock, 0),
+    product.id,
+  )
 }
 
 export function applyClubDiscount(db, req, priced, settings) {
@@ -734,18 +897,24 @@ export function registerClub(app, { db, requireAdmin }) {
   app.post('/api/staff/punch', (req, res) => {
     const row = staffFrom(req, db)
     if (!row) return res.status(401).json({ error: 'נדרשת כניסת עובד' })
-    const kind = req.body?.kind === 'out' ? 'out' : 'in'
+    const kind = req.body?.kind === 'out' ? 'out' : req.body?.kind === 'note' ? 'note' : 'in'
+    const note = String(req.body?.note ?? '').trim()
+    const date = String(req.body?.date ?? '')
+    const time = String(req.body?.time ?? '')
+    if (kind === 'note' && !note) return res.status(400).json({ error: 'חסרה הערה' })
     const lat = Number(req.body?.lat)
     const lng = Number(req.body?.lng)
     const point = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : { lat: null, lng: null }
-    db.prepare('INSERT INTO attendance (id, employee_id, employee_name, kind, at, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    const at = kind === 'note' && /^\d{4}-\d{2}-\d{2}$/.test(date) && minutes(time) != null ? `${date}T${time}:00+03:00` : new Date().toISOString()
+    db.prepare('INSERT INTO attendance (id, employee_id, employee_name, kind, at, lat, lng, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
       id('att'),
       row.id,
       row.name,
       kind,
-      new Date().toISOString(),
+      at,
       point.lat,
       point.lng,
+      note,
     )
     res.status(201).json({ ok: true, located: point.lat != null })
   })
@@ -956,12 +1125,14 @@ export function registerClub(app, { db, requireAdmin }) {
     const punches = db.prepare('SELECT * FROM attendance').all()
     const corrections = db.prepare('SELECT * FROM corrections').all().map(mapCorrection).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     const employees = db.prepare('SELECT * FROM employees').all().map((employee) => {
-      const summary = summarizePunches(
-        punches.filter((item) => item.employee_id === employee.id),
-        month,
-      )
+      const own = punches.filter((item) => item.employee_id === employee.id)
+      const summary = summarizePunches(own, month)
       const pay = payOf(employee, summary.totalMinutes)
-      return { ...mapEmployee(employee), ...summary, ...pay, month }
+      const history = own
+        .filter((item) => jerusalemDate(item.at).startsWith(month))
+        .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+        .map((item) => ({ id: item.id, kind: item.kind, at: item.at, note: item.note || '', lat: item.lat, lng: item.lng }))
+      return { ...mapEmployee(employee), ...summary, ...pay, month, history }
     })
     res.json({ month, employees, corrections })
   })

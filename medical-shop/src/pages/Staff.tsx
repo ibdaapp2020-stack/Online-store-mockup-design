@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTitle } from '../components/ui'
 
 type StaffUser = { id: string; name: string; username: string }
-type Punch = { kind: string; at: string; lat: number | null; lng: number | null }
+type Punch = { kind: string; at: string; lat: number | null; lng: number | null; note?: string }
 type Shift = { inAt: string; outAt: string; minutes: number }
 type WorkDay = { date: string; minutes: number; shifts: Shift[] }
 type Correction = { id: string; date: string; kind: string; requestedAt: string; note: string; status: string }
@@ -41,12 +41,13 @@ function hoursLabel(minutes: number) {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }
 
-export function StaffPage() {
-  useTitle('נוכחות')
+export function StaffPage({ embedded = false }: { embedded?: boolean }) {
+  useTitle(embedded ? '' : 'נוכחות')
   const [session, setSession] = useState<StaffState | null>(null)
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  const [noteOpen, setNoteOpen] = useState(false)
 
   async function load(nextMonth = month) {
     const data = await staffFetch<StaffState>(`/api/staff/me?month=${nextMonth}`)
@@ -107,9 +108,9 @@ export function StaffPage() {
   }
 
   return (
-    <main className="staff-page">
+    <div className={embedded ? 'embedded-staff' : 'staff-page'}>
       <div className="panel form">
-        <img className="admin-logo" src="/logo.jpg" alt="PRO PHARM" />
+        {embedded ? null : <img className="admin-logo" src="/logo.jpg" alt="PRO PHARM" />}
         <h1>דיווח נוכחות</h1>
         {session ? (
           <>
@@ -120,7 +121,7 @@ export function StaffPage() {
             ) : null}
             {session.last ? (
               <p>
-                דיווח אחרון: {session.last.kind === 'in' ? 'כניסה' : 'יציאה'} · {new Date(session.last.at).toLocaleString('he-IL')}
+                דיווח אחרון: {session.last.kind === 'in' ? 'כניסה' : session.last.kind === 'note' ? 'הערה' : 'יציאה'} · {new Date(session.last.at).toLocaleString('he-IL')}
               </p>
             ) : (
               <p className="muted">עדיין אין דיווח.</p>
@@ -131,6 +132,44 @@ export function StaffPage() {
             <button className="btn secondary" type="button" onClick={() => void punch('out')}>
               דיווח יציאה
             </button>
+            <button className="text-btn" type="button" onClick={() => setNoteOpen((open) => !open)}>
+              הערה
+            </button>
+            {noteOpen ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const form = new FormData(event.currentTarget)
+                  void staffFetch('/api/staff/punch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: 'note', date: form.get('date'), time: form.get('time'), note: form.get('note') }),
+                  }).then(async () => {
+                    setNote('ההערה נשמרה ומופיעה למנהל.')
+                    setNoteOpen(false)
+                    await load()
+                  })
+                }}
+              >
+                <div className="split-fields">
+                  <label>
+                    תאריך
+                    <input name="date" type="date" />
+                  </label>
+                  <label>
+                    השעה הנכונה
+                    <input name="time" type="time" />
+                  </label>
+                </div>
+                <label>
+                  הערה
+                  <textarea name="note" required placeholder="השעה הנכונה או כל הערה אחרת" />
+                </label>
+                <button className="btn" type="submit">
+                  שמירת הערה
+                </button>
+              </form>
+            ) : null}
             {note ? <p>{note}</p> : null}
             <label className="month-pick">
               חודש
@@ -158,8 +197,9 @@ export function StaffPage() {
             <div className="stack-list">
               {session.punches.map((punch) => (
                 <article key={punch.at}>
-                  <strong>{punch.kind === 'in' ? 'כניסה' : 'יציאה'}</strong>
+                  <strong>{punch.kind === 'in' ? 'כניסה' : punch.kind === 'out' ? 'יציאה' : 'הערה'}</strong>
                   <span>{new Date(punch.at).toLocaleString('he-IL')}</span>
+                  {punch.note ? <p className="muted">{punch.note}</p> : null}
                 </article>
               ))}
             </div>
@@ -232,6 +272,6 @@ export function StaffPage() {
         )}
         <Link to="/">חזרה לחנות</Link>
       </div>
-    </main>
+    </div>
   )
 }

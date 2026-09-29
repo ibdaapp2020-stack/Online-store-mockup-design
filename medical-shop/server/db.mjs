@@ -68,6 +68,20 @@ export function mapProduct(row) {
     active: row.active === 1,
     sizes: asJsonList(row.sizes),
     colors: asJsonList(row.colors),
+    choices: asJsonValue(row.choices, { size: false, color: false, other: false, otherLabel: 'אחר', others: [] }),
+    variants: asJsonValue(row.variants, []),
+  }
+}
+
+function asJsonValue(value, fallback) {
+  if (Array.isArray(value)) return value
+  if (value && typeof value === 'object') return value
+  if (value == null || value === '') return fallback
+  try {
+    const parsed = JSON.parse(value)
+    return parsed ?? fallback
+  } catch {
+    return fallback
   }
 }
 

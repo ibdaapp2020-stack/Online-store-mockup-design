@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
-import { applyClubDiscount, adminSettings, lineOptions, nextSettings, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, writeSessionCookie } from './club.mjs'
+import { applyClubDiscount, adminSettings, lineOptions, nextSettings, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, takeVariantStock, writeSessionCookie } from './club.mjs'
 import { bootError as seedError, db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
 
 loadEnv()
@@ -87,10 +87,13 @@ app.post('/api/orders', (req, res) => {
       const product = db.prepare('SELECT * FROM products WHERE id = ? AND active = 1').get(line.productId)
       const qty = Number(line.qty)
       if (!product || !Number.isInteger(qty) || qty < 1) throw new Error('מוצר לא זמין')
-      if (product.stock < qty) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
-      const options = lineOptions(product, line)
-      db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(qty, product.id)
-      items.push({ productId: product.id, name: product.name, price: product.price, qty, ...options })
+      const options = lineOptions(product, { ...line, qty })
+      if (options.tracked) takeVariantStock(db, product, options, qty)
+      else {
+        if (product.stock < qty) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
+        db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(qty, product.id)
+      }
+      items.push({ productId: product.id, name: product.name, price: product.price, qty, size: options.size, color: options.color, other: options.other })
     }
     const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0)
     const quoted = quoteOrder(subtotal, couponOn, settings)

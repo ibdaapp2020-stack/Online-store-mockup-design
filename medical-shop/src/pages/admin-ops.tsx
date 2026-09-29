@@ -38,6 +38,7 @@ type StaffCard = {
   totalMinutes: number
   days: WorkDay[]
   openShift: { at: string } | null
+  history?: Array<{ id: string; kind: string; at: string; note: string }>
 }
 type Mail = { id: string; orderId: string; to: string; status: string; detail: string; createdAt: string }
 
@@ -59,6 +60,7 @@ export function AdminServices() {
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [day, setDay] = useState(() => new Date().toLocaleDateString('en-CA'))
 
   async function load() {
     try {
@@ -164,6 +166,34 @@ export function AdminServices() {
             </button>
           </article>
         ))}
+      </div>
+      <h2>יומן תורים</h2>
+      <div className="choice-row">
+        {Array.from({ length: 7 }, (_, index) => {
+          const date = new Date()
+          date.setDate(date.getDate() + index)
+          const value = date.toLocaleDateString('en-CA')
+          return (
+            <button key={value} type="button" className={day === value ? 'choice on' : 'choice'} onClick={() => setDay(value)}>
+              {date.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric' })}
+            </button>
+          )
+        })}
+      </div>
+      <div className="stack-list">
+        {appointments.filter((item) => item.date === day && item.status !== 'cancelled').length === 0 ? <p className="muted">אין תורים ביום הזה.</p> : null}
+        {appointments
+          .filter((item) => item.date === day)
+          .sort((a, b) => a.time.localeCompare(b.time))
+          .map((item) => (
+            <article key={item.id}>
+              <strong>
+                {item.time} · {item.serviceName}
+              </strong>
+              <span>{item.customerName}</span>
+              <span>{item.status === 'done' ? 'בוצע' : item.status === 'cancelled' ? 'בוטל' : 'תפוס'}</span>
+            </article>
+          ))}
       </div>
       <h2>קביעת תור מההנהלה</h2>
       <form
@@ -543,6 +573,15 @@ export function AdminStaff() {
             <p>
               סה״כ {hoursLabel(employee.totalMinutes)} · שכר {money(employee.salary)}
             </p>
+            <h3>היסטוריית דיווחים</h3>
+            {(employee.history ?? []).length === 0 ? <p className="muted">אין דיווחים בחודש הזה.</p> : null}
+            {(employee.history ?? []).map((item) => (
+              <div className="day-row" key={item.id}>
+                <span>{item.kind === 'in' ? 'כניסה' : item.kind === 'out' ? 'יציאה' : 'הערה'}</span>
+                <span>{new Date(item.at).toLocaleString('he-IL')}</span>
+                <span>{item.note}</span>
+              </div>
+            ))}
             <form
               className="split-fields"
               onSubmit={(event) => {

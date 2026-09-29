@@ -5,6 +5,7 @@ import { ProductCard } from '../components/ProductCard'
 import { EmptyState, QtyControl, Stars, useTitle } from '../components/ui'
 import { money } from '../pricing'
 import { useStore } from '../store'
+import { optionStock } from '../types'
 
 export function ProductPage() {
   const { id = '' } = useParams()
@@ -14,12 +15,14 @@ export function ProductPage() {
   const [qty, setQty] = useState(1)
   const [size, setSize] = useState('')
   const [color, setColor] = useState('')
+  const [other, setOther] = useState('')
   const [choiceError, setChoiceError] = useState('')
 
   useEffect(() => {
     setQty(1)
     setSize('')
     setColor('')
+    setOther('')
     setChoiceError('')
   }, [id])
 
@@ -30,7 +33,20 @@ export function ProductPage() {
 
   const category = categories.find((item) => item.id === product.category)
   const similar = products.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 4)
-  const soldOut = product.stock <= 0
+  const choices = {
+    size: Boolean(product.choices?.size || product.sizes?.length),
+    color: Boolean(product.choices?.color || product.colors?.length),
+    other: Boolean(product.choices?.other),
+    otherLabel: product.choices?.otherLabel || 'אחר',
+    others: product.choices?.others ?? [],
+  }
+  const selectedStock = optionStock(product, {
+    size: choices.size ? size : undefined,
+    color: choices.color ? color : undefined,
+    other: choices.other ? other : undefined,
+  })
+  const soldOut = selectedStock <= 0
+  const readyChoice = (!choices.size || size) && (!choices.color || color) && (!choices.other || other)
 
   return (
     <div>
@@ -50,48 +66,83 @@ export function ProductPage() {
             <span className={product.compareAt ? 'price-now discounted' : 'price-now'}>{money(product.price)}</span>
             {product.compareAt ? <span className="compare">{money(product.compareAt)}</span> : null}
           </div>
-          <p className="stock">{soldOut ? 'אזל במלאי הדמו' : `נותרו ${product.stock} במלאי הדמו`}</p>
-          {product.sizes?.length ? (
+          <p className="stock">{soldOut ? 'האפשרות הזו אזלה' : readyChoice ? `נותרו ${selectedStock} מהבחירה הזו` : `במלאי ${product.stock}`}</p>
+          {choices.size ? (
             <div>
-              <strong>מידה</strong>
+              <strong>מידה אחת</strong>
               <div className="choice-row">
-                {product.sizes.map((option) => (
-                  <button key={option} type="button" className={size === option ? 'choice on' : 'choice'} onClick={() => setSize(option)}>
+                {(product.sizes ?? []).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={size === option ? 'choice on' : 'choice'}
+                    disabled={optionStock(product, { size: option }) <= 0}
+                    onClick={() => setSize(option)}
+                  >
                     {option}
                   </button>
                 ))}
               </div>
             </div>
           ) : null}
-          {product.colors?.length ? (
+          {choices.color ? (
             <div>
-              <strong>צבע</strong>
+              <strong>צבע אחד</strong>
               <div className="choice-row">
-                {product.colors.map((option) => (
-                  <button key={option} type="button" className={color === option ? 'choice on' : 'choice'} onClick={() => setColor(option)}>
+                {(product.colors ?? []).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={color === option ? 'choice on' : 'choice'}
+                    disabled={optionStock(product, { size: choices.size ? size : undefined, color: option }) <= 0}
+                    onClick={() => setColor(option)}
+                  >
                     {option}
                   </button>
                 ))}
               </div>
             </div>
           ) : null}
-          {soldOut ? null : <QtyControl qty={qty} max={product.stock} onChange={setQty} />}
+          {choices.other ? (
+            <div>
+              <strong>{choices.otherLabel}</strong>
+              <div className="choice-row">
+                {choices.others.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={other === option ? 'choice on' : 'choice'}
+                    disabled={optionStock(product, { size: choices.size ? size : undefined, color: choices.color ? color : undefined, other: option }) <= 0}
+                    onClick={() => setOther(option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <p className="muted">בוחרים אפשרות אחת בכל פריט. למידה או צבע נוספים מוסיפים את המוצר שוב לסל.</p>
+          {soldOut || !readyChoice ? null : <QtyControl qty={qty} max={selectedStock} onChange={setQty} />}
           {choiceError ? <p className="form-errors">{choiceError}</p> : null}
           <button
             type="button"
             className="btn"
             disabled={soldOut}
             onClick={() => {
-              if (product.sizes?.length && !size) {
-                setChoiceError('יש לבחור מידה')
+              if (choices.size && !size) {
+                setChoiceError('יש לבחור מידה אחת')
                 return
               }
-              if (product.colors?.length && !color) {
-                setChoiceError('יש לבחור צבע')
+              if (choices.color && !color) {
+                setChoiceError('יש לבחור צבע אחד')
+                return
+              }
+              if (choices.other && !other) {
+                setChoiceError(`יש לבחור ${choices.otherLabel} אחד`)
                 return
               }
               setChoiceError('')
-              addToCart(product.id, qty, { size, color })
+              addToCart(product.id, qty, { size, color, other })
             }}
           >
             {soldOut ? 'אזל במלאי הדמו' : 'הוספה לסל'}

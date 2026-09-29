@@ -348,6 +348,7 @@ function writeOne(sql, args, state) {
       at: args[4],
       lat: args[5],
       lng: args[6],
+      note: args[7] || '',
     })
     return
   }
@@ -360,6 +361,23 @@ function writeOne(sql, args, state) {
       detail: args[4],
       created_at: args[5],
     })
+    return
+  }
+  if (sql.startsWith('UPDATE products SET choices')) {
+    const product = byId(state.products, args[sql.includes('stock') ? 5 : 4])
+    if (!product) return
+    product.choices = args[0]
+    product.variants = args[1]
+    product.sizes = args[2]
+    product.colors = args[3]
+    if (sql.includes('stock')) product.stock = Number(args[4])
+    return
+  }
+  if (sql.startsWith('UPDATE products SET variants')) {
+    const product = byId(state.products, args[2])
+    if (!product) return
+    product.variants = args[0]
+    product.stock = Number(args[1])
     return
   }
   if (sql.startsWith('UPDATE products SET sizes')) {

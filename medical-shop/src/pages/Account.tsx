@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTitle } from '../components/ui'
 import { formatDate, money } from '../pricing'
 import { useStore } from '../store'
 import { variantLabel, type Order } from '../types'
+import { StaffPage } from './Staff'
 
 type Member = {
   id: string
@@ -45,7 +46,6 @@ async function accountFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function AccountPage() {
-  useTitle('אזור אישי')
   const { settings } = useStore()
   const [member, setMember] = useState<Member | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
@@ -57,6 +57,30 @@ export function AccountPage() {
   const [date, setDate] = useState('')
   const [slots, setSlots] = useState<string[]>([])
   const [time, setTime] = useState('')
+  const [params, setParams] = useSearchParams()
+  const role = params.get('role') === 'staff' ? 'staff' : params.get('role') === 'admin' ? 'admin' : 'customer'
+  useTitle(role === 'staff' ? 'נוכחות' : role === 'admin' ? 'ניהול' : 'אזור אישי')
+
+  function setRole(next: 'customer' | 'staff' | 'admin') {
+    const query = new URLSearchParams(params)
+    if (next === 'customer') query.delete('role')
+    else query.set('role', next)
+    setParams(query)
+  }
+
+  const gate = (
+    <div className="role-bar">
+      <button type="button" className={role === 'customer' ? 'chip on' : 'chip'} onClick={() => setRole('customer')}>
+        לקוח
+      </button>
+      <button type="button" className={role === 'staff' ? 'chip on' : 'chip'} onClick={() => setRole('staff')}>
+        עובד
+      </button>
+      <button type="button" className={role === 'admin' ? 'chip on' : 'chip'} onClick={() => setRole('admin')}>
+        ניהול
+      </button>
+    </div>
+  )
 
   async function load() {
     const data = await accountFetch<{ customer: Member; orders: Order[]; appointments: Appointment[] }>('/api/account/me')
@@ -117,9 +141,28 @@ export function AccountPage() {
     }
   }
 
+  if (role === 'staff') {
+    return (
+      <div>
+        {gate}
+        <StaffPage embedded />
+      </div>
+    )
+  }
+
+  if (role === 'admin') {
+    return (
+      <div>
+        {gate}
+        <AdminGate />
+      </div>
+    )
+  }
+
   if (!member) {
     return (
       <div className="summary wide panel">
+        {gate}
         <h1>אזור אישי</h1>
         <p className="muted">כאן רואים את מועדון הלקוחות וקובעים תור לשירותי החנות.</p>
         <div className="choice-row">
@@ -178,6 +221,7 @@ export function AccountPage() {
 
   return (
     <div>
+      {gate}
       <div className="section-head">
         <h1>שלום {member.name}</h1>
         <button
@@ -277,5 +321,66 @@ export function AccountPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+function AdminGate() {
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    void fetch('/api/admin/me', { credentials: 'include' }).then((response) => setOpen(response.ok))
+  }, [])
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    const password = String(new FormData(event.currentTarget).get('password') || '')
+    const response = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ password }),
+    })
+    if (!response.ok) {
+      setError('סיסמה שגויה')
+      return
+    }
+    navigate('/admin')
+  }
+
+  if (open) {
+    return (
+      <div className="panel form">
+        <h1>ניהול החנות</h1>
+        <Link className="btn" to="/admin">
+          ללוח הניהול
+        </Link>
+        <button
+          className="text-btn"
+          type="button"
+          onClick={() => {
+            void fetch('/api/admin/logout', { method: 'POST', credentials: 'include' }).then(() => setOpen(false))
+          }}
+        >
+          התנתקות
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <form className="panel form" onSubmit={onSubmit}>
+      <h1>כניסת ניהול</h1>
+      <label>
+        סיסמה
+        <input name="password" type="password" required />
+      </label>
+      {error ? <p className="form-errors">{error}</p> : null}
+      <button className="btn" type="submit">
+        כניסה
+      </button>
+    </form>
   )
 }

@@ -78,17 +78,17 @@ export function Layout() {
           <div>
             <strong>יצירת קשר</strong>
             <p>
+              <a className="whatsapp-link" href="https://wa.me/972505959596" target="_blank" rel="noreferrer">
+                וואטסאפ 0505959596
+              </a>
+            </p>
+            <p>
               <a href="mailto:propharm2026@gmail.com">propharm2026@gmail.com</a>
             </p>
           </div>
           <div>
             <strong>האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.</strong>
             <p>{settings.disclaimer}</p>
-            <p>
-              <a href="/admin">כניסת ניהול</a>
-              {' · '}
-              <a href="/staff">נוכחות עובדים</a>
-            </p>
           </div>
         </div>
       </footer>
@@ -97,6 +97,9 @@ export function Layout() {
           {toast}
         </div>
       ) : null}
+      <a className="whatsapp" href="https://wa.me/972505959596" target="_blank" rel="noreferrer">
+        וואטסאפ
+      </a>
     </div>
   )
 }
