@@ -12,9 +12,15 @@ export function ProductPage() {
   const product = products.find((item) => item.id === id)
   useTitle(product?.name ?? 'מוצר')
   const [qty, setQty] = useState(1)
+  const [size, setSize] = useState('')
+  const [color, setColor] = useState('')
+  const [choiceError, setChoiceError] = useState('')
 
   useEffect(() => {
     setQty(1)
+    setSize('')
+    setColor('')
+    setChoiceError('')
   }, [id])
 
   if (!ready) return null
@@ -45,8 +51,49 @@ export function ProductPage() {
             {product.compareAt ? <span className="compare">{money(product.compareAt)}</span> : null}
           </div>
           <p className="stock">{soldOut ? 'אזל במלאי הדמו' : `נותרו ${product.stock} במלאי הדמו`}</p>
+          {product.sizes?.length ? (
+            <div>
+              <strong>מידה</strong>
+              <div className="choice-row">
+                {product.sizes.map((option) => (
+                  <button key={option} type="button" className={size === option ? 'choice on' : 'choice'} onClick={() => setSize(option)}>
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {product.colors?.length ? (
+            <div>
+              <strong>צבע</strong>
+              <div className="choice-row">
+                {product.colors.map((option) => (
+                  <button key={option} type="button" className={color === option ? 'choice on' : 'choice'} onClick={() => setColor(option)}>
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {soldOut ? null : <QtyControl qty={qty} max={product.stock} onChange={setQty} />}
-          <button type="button" className="btn" disabled={soldOut} onClick={() => addToCart(product.id, qty)}>
+          {choiceError ? <p className="form-errors">{choiceError}</p> : null}
+          <button
+            type="button"
+            className="btn"
+            disabled={soldOut}
+            onClick={() => {
+              if (product.sizes?.length && !size) {
+                setChoiceError('יש לבחור מידה')
+                return
+              }
+              if (product.colors?.length && !color) {
+                setChoiceError('יש לבחור צבע')
+                return
+              }
+              setChoiceError('')
+              addToCart(product.id, qty, { size, color })
+            }}
+          >
             {soldOut ? 'אזל במלאי הדמו' : 'הוספה לסל'}
           </button>
           <h2>מפרט</h2>

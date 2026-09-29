@@ -3,6 +3,10 @@ import { quote, type Quote } from './pricing'
 import type { CartLine, Category, Customer, Order, Product, ShopSettings } from './types'
 
 const CART_KEY = 'medica-cart'
+
+export function cartKey(productId: string, size?: string, color?: string) {
+  return `${productId}::${size ?? ''}::${color ?? ''}`
+}
 const COUPON_KEY = 'medica-coupon'
 const RECENT_KEY = 'medica-recent-orders'
 
@@ -17,6 +21,11 @@ const FALLBACK_SETTINGS: ShopSettings = {
   couponCode: 'DEMO10',
   couponPercent: 10,
   paymentNote: 'ההזמנה נשמרת בחנות. פרטי הכרטיס לא נשמרים.',
+  loyaltyMode: 'points',
+  pointsPer100: 10,
+  clubPercent: 5,
+  notifyEmail: 'propharm2026@gmail.com',
+  smtpUser: 'propharm2026@gmail.com',
 }
 
 export type CartDetail = CartLine & { product: Product }
@@ -34,9 +43,9 @@ type StoreValue = {
   totals: Quote
   cartCount: number
   refreshCatalog: () => Promise<void>
-  addToCart: (productId: string, qty?: number) => void
-  setQty: (productId: string, qty: number) => void
-  removeFromCart: (productId: string) => void
+  addToCart: (productId: string, qty?: number, options?: { size?: string; color?: string }) => void
+  setQty: (key: string, qty: number) => void
+  removeFromCart: (key: string) => void
   applyCoupon: (code: string) => boolean
   clearCoupon: () => void
   placeOrder: (customer: Customer) => Promise<string | null>
@@ -130,31 +139,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const cartCount = detailed.reduce((sum, line) => sum + line.qty, 0)
 
-  function addToCart(productId: string, qty = 1) {
+  function addToCart(productId: string, qty = 1, options?: { size?: string; color?: string }) {
     const product = products.find((item) => item.id === productId)
     if (!product || product.stock <= 0 || qty <= 0) return
+    const size = options?.size || undefined
+    const color = options?.color || undefined
+    const key = cartKey(productId, size, color)
     setCart((prev) => {
-      const existing = prev.find((line) => line.productId === productId)
+      const existing = prev.find((line) => cartKey(line.productId, line.size, line.color) === key)
       const nextQty = Math.min(product.stock, (existing?.qty ?? 0) + qty)
-      if (existing) return prev.map((line) => (line.productId === productId ? { ...line, qty: nextQty } : line))
-      return [...prev, { productId, qty: nextQty }]
+      if (existing) return prev.map((line) => (cartKey(line.productId, line.size, line.color) === key ? { ...line, qty: nextQty } : line))
+      return [...prev, { productId, qty: nextQty, size, color }]
     })
     notify('נוסף לסל')
   }
 
-  function setQty(productId: string, qty: number) {
-    const product = products.find((item) => item.id === productId)
-    if (!product) return
+  function setQty(key: string, qty: number) {
+    const current = cart.find((line) => cartKey(line.productId, line.size, line.color) === key)
+    const product = products.find((item) => item.id === current?.productId)
+    if (!current || !product) return
     if (qty <= 0) {
-      setCart((prev) => prev.filter((line) => line.productId !== productId))
+      setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color) !== key))
       return
     }
     const nextQty = Math.min(product.stock, qty)
-    setCart((prev) => prev.map((line) => (line.productId === productId ? { ...line, qty: nextQty } : line)))
+    setCart((prev) => prev.map((line) => (cartKey(line.productId, line.size, line.color) === key ? { ...line, qty: nextQty } : line)))
   }
 
-  function removeFromCart(productId: string) {
-    setCart((prev) => prev.filter((line) => line.productId !== productId))
+  function removeFromCart(key: string) {
+    setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color) !== key))
   }
 
   function applyCoupon(code: string) {
@@ -176,10 +189,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const response = await fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         customer,
         coupon,
-        items: detailed.map((line) => ({ productId: line.productId, qty: line.qty })),
+        items: detailed.map((line) => ({ productId: line.productId, qty: line.qty, size: line.size, color: line.color })),
       }),
     })
     const data = (await response.json()) as Order & { error?: string }

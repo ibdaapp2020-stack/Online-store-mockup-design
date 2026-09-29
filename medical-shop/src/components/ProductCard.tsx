@@ -8,6 +8,7 @@ import { BadgeTag, Stars } from './ui'
 export function ProductCard({ product }: { product: Product }) {
   const { addToCart } = useStore()
   const soldOut = product.stock <= 0
+  const needsChoice = Boolean(product.sizes?.length || product.colors?.length)
   return (
     <article className="card">
       <Link to={`/p/${product.id}`} className="card-media">
@@ -23,9 +24,15 @@ export function ProductCard({ product }: { product: Product }) {
           <span className={product.compareAt ? 'price-now discounted' : 'price-now'}>{money(product.price)}</span>
           {product.compareAt ? <span className="compare">{money(product.compareAt)}</span> : null}
         </div>
-        <button type="button" className="btn full" disabled={soldOut} onClick={() => addToCart(product.id)}>
-          {soldOut ? 'אזל במלאי הדמו' : 'הוספה לסל'}
-        </button>
+        {needsChoice ? (
+          <Link className="btn full" to={`/p/${product.id}`}>
+            {soldOut ? 'אזל במלאי הדמו' : 'בחירת מידה / צבע'}
+          </Link>
+        ) : (
+          <button type="button" className="btn full" disabled={soldOut} onClick={() => addToCart(product.id)}>
+            {soldOut ? 'אזל במלאי הדמו' : 'הוספה לסל'}
+          </button>
+        )}
       </div>
     </article>
   )

@@ -4,7 +4,7 @@ import { STATUS_FLOW, STATUS_LABEL } from '../data'
 import { useTitle } from '../components/ui'
 import { formatDate, money } from '../pricing'
 import { useStore } from '../store'
-import type { Order } from '../types'
+import { variantLabel, type Order } from '../types'
 
 export function TrackPage() {
   useTitle('מעקב הזמנה')
@@ -104,7 +104,8 @@ export function TrackPage() {
             {order.items.map((item) => (
               <li key={`${item.productId}-${item.name}`}>
                 <span>
-                  {item.name} × {item.qty}
+                  {item.name}
+                  {variantLabel(item) ? ` (${variantLabel(item)})` : ''} × {item.qty}
                 </span>
                 <span>{money(item.price * item.qty)}</span>
               </li>

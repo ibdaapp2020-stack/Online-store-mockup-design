@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EmptyState, useTitle } from '../components/ui'
 import { money } from '../pricing'
+import { variantLabel } from '../types'
 import { useStore } from '../store'
 
 type FormState = {
@@ -156,7 +157,8 @@ export function CheckoutPage() {
             {cart.map((line) => (
               <li key={line.productId}>
                 <span>
-                  {line.product.name} × {line.qty}
+                  {line.product.name}
+                  {variantLabel(line) ? ` (${variantLabel(line)})` : ''} × {line.qty}
                 </span>
                 <span>{money(line.product.price * line.qty)}</span>
               </li>

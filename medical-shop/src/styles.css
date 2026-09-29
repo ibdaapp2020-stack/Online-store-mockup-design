@@ -237,6 +237,21 @@ input, select {
 @media (max-width: 860px) {
   .admin-app, .admin-stats, .admin-table article, .admin-orders article { grid-template-columns: 1fr; }
 }
+.choice-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.choice {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  border-radius: 999px;
+  min-height: 40px;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+.choice.on { background: var(--teal); color: white; border-color: var(--teal); }
+.account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.account-grid .panel, .summary.wide.panel { padding: 1rem; }
+
 .toast {
   position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
   background: var(--ink); color: white; border-radius: 999px; padding: 0.7rem 1rem; z-index: 30;
@@ -254,7 +269,7 @@ input, select {
   .search { order: 4; flex: 1 0 100%; }
   .nav { display: none; order: 5; flex-basis: 100%; flex-direction: column; background: white; }
   .nav.open { display: flex; }
-  .hero, .catalog-layout, .cart-layout, .checkout-grid, .product-layout, .trust, .footer-grid { grid-template-columns: 1fr; }
+  .hero, .catalog-layout, .cart-layout, .checkout-grid, .product-layout, .trust, .footer-grid, .account-grid { grid-template-columns: 1fr; }
   .gallery-main { height: 280px; }
   .cat-grid, .product-grid { grid-template-columns: repeat(2, 1fr); }
   .track-form { flex-direction: column; align-items: stretch; }

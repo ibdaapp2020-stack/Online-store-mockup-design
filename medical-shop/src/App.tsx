@@ -1,5 +1,6 @@
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { AccountPage } from './pages/Account'
 import { CartPage } from './pages/Cart'
 import { CatalogPage } from './pages/Catalog'
 import { CheckoutPage } from './pages/Checkout'
@@ -9,6 +10,8 @@ import { ProductPage } from './pages/Product'
 import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
 import { AdminDashboard, AdminLogin, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
+import { AdminClub, AdminServices, AdminStaff } from './pages/admin-ops'
+import { StaffPage } from './pages/Staff'
 
 export default function App() {
   return (
@@ -24,7 +27,9 @@ export default function App() {
             <Route path="/order/:id" element={<OrderPage />} />
             <Route path="/track" element={<TrackPage />} />
             <Route path="/track/:id" element={<TrackPage />} />
+            <Route path="/account" element={<AccountPage />} />
           </Route>
+          <Route path="/staff" element={<StaffPage />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminShell />}>
             <Route index element={<AdminDashboard />} />
@@ -33,6 +38,9 @@ export default function App() {
             <Route path="products/:id" element={<AdminProductForm />} />
             <Route path="orders" element={<AdminOrders />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="services" element={<AdminServices />} />
+            <Route path="club" element={<AdminClub />} />
+            <Route path="staff" element={<AdminStaff />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

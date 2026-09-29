@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
+import { applyClubDiscount, adminSettings, lineOptions, nextSettings, publicSettings, registerClub, saveProductOptions, settleClub } from './club.mjs'
 import { bootError as seedError, db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
 
 loadEnv()
@@ -56,7 +57,7 @@ app.get('/api/catalog', (_req, res) => {
     .prepare('SELECT * FROM products WHERE active = 1 ORDER BY rowid')
     .all()
     .map(mapProduct)
-  res.json({ categories, products, settings: getSettings() })
+  res.json({ categories, products, settings: publicSettings(getSettings()) })
 })
 
 app.get('/api/orders/track/:id', (req, res) => {
@@ -87,16 +88,19 @@ app.post('/api/orders', (req, res) => {
       const qty = Number(line.qty)
       if (!product || !Number.isInteger(qty) || qty < 1) throw new Error('מוצר לא זמין')
       if (product.stock < qty) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
+      const options = lineOptions(product, line)
       db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(qty, product.id)
-      items.push({ productId: product.id, name: product.name, price: product.price, qty })
+      items.push({ productId: product.id, name: product.name, price: product.price, qty, ...options })
     }
     const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0)
-    const priced = quoteOrder(subtotal, couponOn, settings)
+    const quoted = quoteOrder(subtotal, couponOn, settings)
+    const club = applyClubDiscount(db, req, quoted, settings)
+    const priced = club.priced
     const order = {
       id: nextOrderId(),
       createdAt: new Date().toISOString(),
       status: 'received',
-      customer: { name, phone, city, address },
+      customer: { name, phone, city, address, customerId: club.customerId },
       items,
       ...priced,
       coupon: couponOn ? settings.couponCode : undefined,
@@ -117,6 +121,7 @@ app.post('/api/orders', (req, res) => {
       order.coupon ?? null,
     )
     db.exec('COMMIT')
+    settleClub(db, req, order, settings).catch(() => {})
     res.status(201).json(order)
   } catch (error) {
     db.exec('ROLLBACK')
@@ -221,6 +226,7 @@ app.post('/api/admin/products', requireAdmin, upload.single('imageFile'), (req, 
     product.image,
     product.active,
   )
+  saveProductOptions(db, id, req.body)
   res.status(201).json(mapProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(id)))
 })
 
@@ -248,6 +254,7 @@ app.patch('/api/admin/products/:id', requireAdmin, upload.single('imageFile'), (
     product.active,
     req.params.id,
   )
+  saveProductOptions(db, req.params.id, req.body)
   res.json(mapProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)))
 })
 
@@ -270,30 +277,20 @@ app.patch('/api/admin/orders/:id', requireAdmin, (req, res) => {
 })
 
 app.get('/api/admin/settings', requireAdmin, (_req, res) => {
-  res.json(getSettings())
+  res.json(adminSettings(getSettings()))
 })
 
 app.patch('/api/admin/settings', requireAdmin, (req, res) => {
   const current = getSettings()
-  const next = {
-    ...current,
-    storeName: String(req.body.storeName ?? current.storeName).trim(),
-    tagline: String(req.body.tagline ?? current.tagline).trim(),
-    banner: String(req.body.banner ?? current.banner),
-    showBanner: Boolean(req.body.showBanner),
-    disclaimer: String(req.body.disclaimer ?? current.disclaimer).trim(),
-    shippingFee: Number(req.body.shippingFee),
-    freeFrom: Number(req.body.freeFrom),
-    couponCode: String(req.body.couponCode ?? current.couponCode).trim().toUpperCase(),
-    couponPercent: Number(req.body.couponPercent),
-    paymentNote: String(req.body.paymentNote ?? current.paymentNote).trim(),
-  }
+  const next = nextSettings(current, req.body)
   if (!next.storeName || !Number.isFinite(next.shippingFee) || !Number.isFinite(next.freeFrom) || !Number.isFinite(next.couponPercent)) {
     return res.status(400).json({ error: 'הגדרות לא תקינות' })
   }
   db.prepare('UPDATE settings SET data = ? WHERE id = 1').run(JSON.stringify(next))
-  res.json(next)
+  res.json(adminSettings(next))
 })
+
+registerClub(app, { db, requireAdmin })
 
 const port = Number(process.env.PORT) || 5180
 if (process.env.VERCEL) app.listen(port)

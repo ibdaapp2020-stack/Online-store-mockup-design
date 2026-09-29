@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { EmptyState, useTitle } from '../components/ui'
 import { formatDate, money } from '../pricing'
 import { useStore } from '../store'
+import { variantLabel } from '../types'
 import type { Order } from '../types'
 
 export function OrderPage() {
@@ -45,7 +46,8 @@ export function OrderPage() {
           {order.items.map((item) => (
             <li key={`${item.productId}-${item.name}`}>
               <span>
-                {item.name} × {item.qty}
+                {item.name}
+                {variantLabel(item) ? ` (${variantLabel(item)})` : ''} × {item.qty}
               </span>
               <span>{money(item.price * item.qty)}</span>
             </li>

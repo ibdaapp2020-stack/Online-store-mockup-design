@@ -12,6 +12,14 @@ export function createJsonDb(file, fallback) {
   state.categories ||= []
   state.products ||= []
   state.orders ||= []
+  state.customers ||= []
+  state.customer_sessions ||= []
+  state.services ||= []
+  state.appointments ||= []
+  state.employees ||= []
+  state.staff_sessions ||= []
+  state.attendance ||= []
+  state.mail_log ||= []
   let snapshot = null
 
   function persist() {
@@ -51,6 +59,14 @@ function byId(rows, id) {
 }
 
 function readOne(sql, args, state) {
+  if (sql.startsWith('SELECT token, customer_id FROM customer_sessions')) return state.customer_sessions.find((row) => row.token === args[0])
+  if (sql.startsWith('SELECT token, employee_id FROM staff_sessions')) return state.staff_sessions.find((row) => row.token === args[0])
+  if (sql.startsWith('SELECT * FROM customers WHERE email')) return state.customers.find((row) => row.email === args[0])
+  if (sql.startsWith('SELECT * FROM customers WHERE id')) return byId(state.customers, args[0])
+  if (sql.startsWith('SELECT * FROM employees WHERE username')) return state.employees.find((row) => row.username === args[0])
+  if (sql.startsWith('SELECT * FROM employees WHERE id')) return byId(state.employees, args[0])
+  if (sql.startsWith('SELECT * FROM services WHERE id')) return byId(state.services, args[0])
+  if (sql.startsWith('SELECT * FROM appointments WHERE id')) return byId(state.appointments, args[0])
   if (sql.startsWith('SELECT data FROM settings')) return state.settings ? { data: JSON.stringify(state.settings) } : undefined
   if (sql.startsWith('SELECT id FROM settings')) return state.settings ? { id: 1 } : undefined
   if (sql.startsWith('SELECT password_hash FROM admin')) return state.admin ? { password_hash: state.admin.password_hash } : undefined
@@ -81,6 +97,13 @@ function readOne(sql, args, state) {
 }
 
 function readMany(sql, _args, state) {
+  if (sql.startsWith('SELECT id FROM products')) return state.products.map((product) => ({ id: product.id }))
+  if (sql.startsWith('SELECT * FROM services')) return [...state.services]
+  if (sql.startsWith('SELECT * FROM appointments')) return [...state.appointments]
+  if (sql.startsWith('SELECT * FROM customers')) return [...state.customers]
+  if (sql.startsWith('SELECT * FROM employees')) return [...state.employees]
+  if (sql.startsWith('SELECT * FROM attendance')) return [...state.attendance]
+  if (sql.startsWith('SELECT * FROM mail_log')) return [...state.mail_log]
   if (sql.startsWith('SELECT id, name, blurb FROM categories')) {
     return [...state.categories].sort((a, b) => a.sort - b.sort).map(({ id, name, blurb }) => ({ id, name, blurb }))
   }
@@ -151,6 +174,125 @@ function writeOne(sql, args, state) {
       total: args[8],
       coupon: args[9],
     })
+    return
+  }
+  if (sql.startsWith('INSERT INTO customer_sessions')) {
+    state.customer_sessions.push({ token: args[0], customer_id: args[1], created_at: args[2] })
+    return
+  }
+  if (sql.startsWith('DELETE FROM customer_sessions')) {
+    state.customer_sessions = state.customer_sessions.filter((row) => row.token !== args[0])
+    return
+  }
+  if (sql.startsWith('INSERT INTO customers')) {
+    state.customers.push({
+      id: args[0],
+      name: args[1],
+      phone: args[2],
+      email: args[3],
+      password_hash: args[4],
+      points: args[5],
+      next_percent: args[6],
+      created_at: args[7],
+    })
+    return
+  }
+  if (sql.startsWith('UPDATE customers SET points')) {
+    const customer = byId(state.customers, args[2])
+    if (!customer) return
+    customer.points = args[0]
+    customer.next_percent = args[1]
+    return
+  }
+  if (sql.startsWith('INSERT INTO services')) {
+    state.services.push({
+      id: args[0],
+      name: args[1],
+      days: args[2],
+      open_time: args[3],
+      close_time: args[4],
+      slot_minutes: args[5],
+      active: args[6],
+    })
+    return
+  }
+  if (sql.startsWith('UPDATE services SET name')) {
+    const service = byId(state.services, args[6])
+    if (!service) return
+    service.name = args[0]
+    service.days = args[1]
+    service.open_time = args[2]
+    service.close_time = args[3]
+    service.slot_minutes = args[4]
+    service.active = args[5]
+    return
+  }
+  if (sql.startsWith('DELETE FROM services')) {
+    state.services = state.services.filter((row) => row.id !== args[0])
+    return
+  }
+  if (sql.startsWith('INSERT INTO appointments')) {
+    state.appointments.push({
+      id: args[0],
+      service_id: args[1],
+      customer_id: args[2],
+      customer_name: args[3],
+      date: args[4],
+      time: args[5],
+      status: args[6],
+      created_at: args[7],
+    })
+    return
+  }
+  if (sql.startsWith('UPDATE appointments SET status')) {
+    const appointment = byId(state.appointments, args[1])
+    if (appointment) appointment.status = args[0]
+    return
+  }
+  if (sql.startsWith('INSERT INTO staff_sessions')) {
+    state.staff_sessions.push({ token: args[0], employee_id: args[1], created_at: args[2] })
+    return
+  }
+  if (sql.startsWith('DELETE FROM staff_sessions')) {
+    state.staff_sessions = state.staff_sessions.filter((row) => row.token !== args[0])
+    return
+  }
+  if (sql.startsWith('INSERT INTO employees')) {
+    state.employees.push({ id: args[0], name: args[1], username: args[2], password_hash: args[3], active: args[4] })
+    return
+  }
+  if (sql.startsWith('DELETE FROM employees')) {
+    state.employees = state.employees.filter((row) => row.id !== args[0])
+    return
+  }
+  if (sql.startsWith('INSERT INTO attendance')) {
+    state.attendance.push({
+      id: args[0],
+      employee_id: args[1],
+      employee_name: args[2],
+      kind: args[3],
+      at: args[4],
+      lat: args[5],
+      lng: args[6],
+    })
+    return
+  }
+  if (sql.startsWith('INSERT INTO mail_log')) {
+    state.mail_log.push({
+      id: args[0],
+      order_id: args[1],
+      to_email: args[2],
+      status: args[3],
+      detail: args[4],
+      created_at: args[5],
+    })
+    return
+  }
+  if (sql.startsWith('UPDATE products SET sizes')) {
+    const product = byId(state.products, args[2])
+    if (!product) return
+    product.sizes = args[0]
+    product.colors = args[1]
     return
   }
   if (sql.startsWith('UPDATE products SET stock')) {

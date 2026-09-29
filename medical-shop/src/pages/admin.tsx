@@ -73,6 +73,9 @@ export function AdminShell() {
         <NavLink to="/admin/products">מוצרים</NavLink>
         <NavLink to="/admin/orders">הזמנות</NavLink>
         <NavLink to="/admin/settings">הגדרות</NavLink>
+        <NavLink to="/admin/services">תורים</NavLink>
+        <NavLink to="/admin/club">מועדון</NavLink>
+        <NavLink to="/admin/staff">עובדים</NavLink>
         <Link to="/">לאתר</Link>
         <button
           type="button"
@@ -201,6 +204,8 @@ const EMPTY = {
   rating: '4.5',
   reviews: '0',
   image: '',
+  sizes: '',
+  colors: '',
   active: true,
 }
 
@@ -228,6 +233,8 @@ export function AdminProductForm() {
         rating: String(product.rating),
         reviews: String(product.reviews),
         image: product.image ?? '',
+        sizes: (product.sizes ?? []).join(', '),
+        colors: (product.colors ?? []).join(', '),
         active: product.active !== false,
       })
     })
@@ -305,6 +312,14 @@ export function AdminProductForm() {
         <textarea value={form.specs} onChange={(event) => set('specs', event.target.value)} rows={4} />
       </label>
       <label>
+        מידות, מופרדות בפסיק. לדוגמה S, M, L, XL. ריק אם אין מידה
+        <input value={form.sizes} onChange={(event) => set('sizes', event.target.value)} />
+      </label>
+      <label>
+        צבעים, מופרדים בפסיק. ריק אם אין צבע
+        <input value={form.colors} onChange={(event) => set('colors', event.target.value)} />
+      </label>
+      <label>
         כתובת תמונה
         <input value={form.image} onChange={(event) => set('image', event.target.value)} />
       </label>
@@ -350,7 +365,7 @@ export function AdminOrders() {
               <p>
                 {order.customer.name} · {order.customer.city} · {order.customer.phone}
               </p>
-              <p>{order.items.map((item) => `${item.name} × ${item.qty}`).join(' · ')}</p>
+              <p>{order.items.map((item) => `${item.name}${item.size ? ` ${item.size}` : ''}${item.color ? ` ${item.color}` : ''} × ${item.qty}`).join(' · ')}</p>
             </div>
             <strong>{money(order.total)}</strong>
             <select value={order.status} onChange={(event) => void setStatus(order.id, event.target.value as OrderStatus)}>
@@ -433,6 +448,43 @@ export function AdminSettings() {
           <input value={form.couponPercent} onChange={(event) => set('couponPercent', Number(event.target.value))} inputMode="numeric" />
         </label>
       </div>
+      <h2>מועדון לקוחות</h2>
+      <label>
+        אופן צבירה
+        <select value={form.loyaltyMode} onChange={(event) => set('loyaltyMode', event.target.value as ShopSettings['loyaltyMode'])}>
+          <option value="points">נקודות לכל קנייה</option>
+          <option value="percent">אחוז הנחה לקנייה הבאה</option>
+        </select>
+      </label>
+      <div className="split-fields">
+        <label>
+          נקודות לכל 100 ₪
+          <input value={form.pointsPer100} onChange={(event) => set('pointsPer100', Number(event.target.value))} inputMode="numeric" />
+        </label>
+        <label>
+          אחוז לקנייה הבאה
+          <input value={form.clubPercent} onChange={(event) => set('clubPercent', Number(event.target.value))} inputMode="numeric" />
+        </label>
+      </div>
+      <h2>עדכון מייל על הזמנה</h2>
+      <label>
+        אימייל לקבלת הזמנות
+        <input value={form.notifyEmail} onChange={(event) => set('notifyEmail', event.target.value)} />
+      </label>
+      <label>
+        משתמש Gmail לשליחה
+        <input value={form.smtpUser} onChange={(event) => set('smtpUser', event.target.value)} />
+      </label>
+      <label>
+        סיסמת אפליקציה של Gmail
+        <input
+          type="password"
+          value={form.smtpPass ?? ''}
+          placeholder={form.smtpConfigured ? 'שמורה. מלאו רק כדי להחליף' : 'נדרשת כדי שהמייל ייצא'}
+          onChange={(event) => set('smtpPass', event.target.value)}
+          autoComplete="new-password"
+        />
+      </label>
       <label>
         הערת תשלום
         <textarea value={form.paymentNote} onChange={(event) => set('paymentNote', event.target.value)} rows={3} />

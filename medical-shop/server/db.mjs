@@ -35,7 +35,7 @@ export function loadEnv() {
   }
 }
 
-function hashPassword(password) {
+export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex')
   const hash = scryptSync(password, salt, 32).toString('hex')
   return `${salt}:${hash}`
@@ -66,6 +66,19 @@ export function mapProduct(row) {
     tone: row.tone,
     image: row.image,
     active: row.active === 1,
+    sizes: asJsonList(row.sizes),
+    colors: asJsonList(row.colors),
+  }
+}
+
+function asJsonList(value) {
+  if (Array.isArray(value)) return value.map(String)
+  if (value == null || value === '') return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
   }
 }
 
@@ -95,6 +108,12 @@ const DEFAULT_SETTINGS = {
   couponCode: 'DEMO10',
   couponPercent: 10,
   paymentNote: 'ההזמנה נשמרת בחנות. סליקת אשראי עדיין לא מחוברת, ופרטי הכרטיס לא נשמרים.',
+  loyaltyMode: 'points',
+  pointsPer100: 10,
+  clubPercent: 5,
+  notifyEmail: 'propharm2026@gmail.com',
+  smtpUser: 'propharm2026@gmail.com',
+  smtpPass: '',
 }
 
 export function getSettings() {

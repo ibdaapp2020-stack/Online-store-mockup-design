@@ -17,6 +17,8 @@ export type Product = {
   tone: string
   image?: string
   active?: boolean
+  sizes?: string[]
+  colors?: string[]
 }
 
 export type ShopSettings = {
@@ -30,6 +32,13 @@ export type ShopSettings = {
   couponCode: string
   couponPercent: number
   paymentNote: string
+  loyaltyMode: 'points' | 'percent'
+  pointsPer100: number
+  clubPercent: number
+  notifyEmail: string
+  smtpUser: string
+  smtpPass?: string
+  smtpConfigured?: boolean
 }
 
 export type Category = {
@@ -41,6 +50,12 @@ export type Category = {
 export type CartLine = {
   productId: string
   qty: number
+  size?: string
+  color?: string
+}
+
+export function variantLabel(item: { size?: string; color?: string }) {
+  return [item.size ? `מידה ${item.size}` : '', item.color ? `צבע ${item.color}` : ''].filter(Boolean).join(' · ')
 }
 
 export type Customer = {
@@ -48,6 +63,7 @@ export type Customer = {
   phone: string
   city: string
   address: string
+  customerId?: string
 }
 
 export type OrderStatus = 'received' | 'packing' | 'shipped' | 'delivered'
@@ -57,6 +73,8 @@ export type OrderItem = {
   name: string
   price: number
   qty: number
+  size?: string
+  color?: string
 }
 
 export type Order = {

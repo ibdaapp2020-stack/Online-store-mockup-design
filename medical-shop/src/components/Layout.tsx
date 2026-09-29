@@ -47,6 +47,7 @@ export function Layout() {
               </NavLink>
               <NavLink to="/catalog">קטלוג</NavLink>
               <NavLink to="/track">מעקב הזמנה</NavLink>
+              <NavLink to="/account">אזור אישי</NavLink>
             </nav>
             <NavLink to="/cart" className="cart-link">
               סל
@@ -84,6 +85,8 @@ export function Layout() {
             <p>{settings.disclaimer}</p>
             <p>
               <a href="/admin">כניסת ניהול</a>
+              {' · '}
+              <a href="/staff">נוכחות עובדים</a>
             </p>
           </div>
         </div>
