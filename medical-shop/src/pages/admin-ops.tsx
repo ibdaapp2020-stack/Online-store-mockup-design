@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { snapshotAdminCatalog } from '../catalog-sync'
 import { formatDate, money } from '../pricing'
 
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
@@ -501,6 +502,7 @@ export function AdminCategories() {
         body: JSON.stringify({ name: form.get('name'), blurb: form.get('blurb') }),
       })
       event.currentTarget.reset()
+      await snapshotAdminCatalog()
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
@@ -542,7 +544,7 @@ export function AdminCategories() {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ name, blurb: category.blurb }),
-                }).then(load)
+                }).then(() => snapshotAdminCatalog().then(load))
               }}
             >
               עריכה
@@ -553,7 +555,7 @@ export function AdminCategories() {
               onClick={() => {
                 if (!window.confirm('למחוק את הקטגוריה?')) return
                 void adminFetch(`/api/admin/categories/${category.id}`, { method: 'DELETE' })
-                  .then(load)
+                  .then(() => snapshotAdminCatalog().then(load))
                   .catch((reason) => setError(reason instanceof Error ? reason.message : 'מחיקה נכשלה'))
               }}
             >

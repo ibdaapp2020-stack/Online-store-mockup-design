@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { quote, type Quote } from './pricing'
 import type { CartLine, Category, Customer, Order, Product, ShopSettings } from './types'
 import { optionStock } from './types'
+import { applyLiveCatalog } from './catalog-sync'
+
 
 const CART_KEY = 'medica-cart'
 
@@ -81,18 +83,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const response = await fetch('/api/catalog')
     if (!response.ok) throw new Error('לא ניתן לטעון את החנות')
     const data = (await response.json()) as { products: Product[]; categories: Category[]; settings: ShopSettings }
-    setProducts(data.products)
-    setCategories(data.categories)
-    setSettings(data.settings)
+    const live = applyLiveCatalog(data.products, data.categories, data.settings)
+    setProducts(live.products)
+    setCategories(live.categories)
+    setSettings(live.settings)
     setCart((current) => {
       const stored = current.length ? current : readJson<CartLine[]>(CART_KEY) ?? []
-      return stored.filter((line) => data.products.some((product) => product.id === line.productId && product.stock > 0))
+      return stored.filter((line) => live.products.some((product) => product.id === line.productId && product.stock > 0))
     })
     const savedCoupon = localStorage.getItem(COUPON_KEY)
     const savedPercent = Number(localStorage.getItem('medica-coupon-percent') || 0)
-    if (savedCoupon && (savedCoupon.toUpperCase() === data.settings.couponCode.toUpperCase() || savedPercent > 0)) {
+    if (savedCoupon && (savedCoupon.toUpperCase() === live.settings.couponCode.toUpperCase() || savedPercent > 0)) {
       setCoupon(savedCoupon)
-      setExtraPercent(savedCoupon.toUpperCase() === data.settings.couponCode.toUpperCase() ? 0 : savedPercent)
+      setExtraPercent(savedCoupon.toUpperCase() === live.settings.couponCode.toUpperCase() ? 0 : savedPercent)
     }
   }
 
@@ -103,6 +106,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setError(reason instanceof Error ? reason.message : 'שגיאת טעינה')
         setReady(true)
       })
+  }, [])
+
+  useEffect(() => {
+    function onCatalog() {
+      void refreshCatalog()
+    }
+    window.addEventListener('medica-catalog', onCatalog)
+    window.addEventListener('storage', onCatalog)
+    window.addEventListener('focus', onCatalog)
+    document.addEventListener('visibilitychange', onCatalog)
+    return () => {
+      window.removeEventListener('medica-catalog', onCatalog)
+      window.removeEventListener('storage', onCatalog)
+      window.removeEventListener('focus', onCatalog)
+      document.removeEventListener('visibilitychange', onCatalog)
+    }
   }, [])
 
   useEffect(() => {

@@ -18,6 +18,7 @@ export function HomePage() {
   useTitle('בית')
   const { products, categories, ready } = useStore()
   const [more, setMore] = useState(false)
+  const newest = products.slice(0, 4)
   const best = [...products.filter((product) => product.badge === 'popular')].sort((a, b) => b.reviews - a.reviews).slice(0, 4)
   const recommended = [...products]
     .filter((product) => !best.some((item) => item.id === product.id))
@@ -94,6 +95,22 @@ export function HomePage() {
             </button>
           )}
         </div>
+      </section>
+
+      <section>
+        <div className="section-head">
+          <h2>נוספו עכשיו</h2>
+          <Link to="/catalog">לקטלוג</Link>
+        </div>
+        {ready ? (
+          <div className="product-grid">
+            {newest.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : (
+          <SkeletonGrid />
+        )}
       </section>
 
       <section>

@@ -1,30 +1,15 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { createJsonDb } from './json-db.mjs'
-import seedFile from './catalog-seed.mjs'
+import esbuild from 'esbuild'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = join(root, 'data')
-const onVercel = Boolean(process.env.VERCEL)
+mkdirSync(dataDir, { recursive: true })
 
-export let bootError = null
-const seed = loadSeedFile()
-
-export const db = onVercel
-  ? createJsonDb(join('/tmp', 'medica-shop-propharm.json'), seed)
-  : await openSqlite()
-
-function loadSeedFile() {
-  return seedFile
-}
-
-async function openSqlite() {
-  mkdirSync(dataDir, { recursive: true })
-  const { DatabaseSync } = await import('node:sqlite')
-  return new DatabaseSync(join(dataDir, 'shop.db'))
-}
+export const db = new DatabaseSync(join(dataDir, 'shop.db'))
 
 export function loadEnv() {
   const file = join(root, '.env')
@@ -142,7 +127,6 @@ export function quoteOrder(subtotal, couponOn, settings) {
 }
 
 async function loadSeed() {
-  const esbuild = (await import('esbuild')).default
   const outfile = join(dataDir, 'seed.mjs')
   await esbuild.build({
     entryPoints: [join(root, 'src/data.ts')],
@@ -218,34 +202,7 @@ export async function initDb() {
     db.prepare('INSERT INTO admin (id, password_hash) VALUES (1, ?)').run(hashPassword(password))
   }
 
-  const count = db.prepare('SELECT COUNT(*) AS count FROM products').get().count
-  if (count > 0) {
-    const have = new Set(db.prepare('SELECT id FROM products').all().map((row) => row.id))
-    const insert = db.prepare(`
-      INSERT INTO products (
-        id, name, category, price, compare_at, description, specs, stock, badge, rating, reviews, tone, image, active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `)
-    for (const product of seedFile.products || []) {
-      if (have.has(product.id)) continue
-      insert.run(
-        product.id,
-        product.name,
-        product.category,
-        product.price,
-        product.compare_at ?? null,
-        product.description,
-        typeof product.specs === 'string' ? product.specs : JSON.stringify(product.specs ?? []),
-        product.stock,
-        product.badge ?? null,
-        product.rating,
-        product.reviews,
-        product.tone,
-        product.image || `/products/${product.id}.png`,
-      )
-    }
-    return
-  }
+  if (db.prepare('SELECT COUNT(*) AS count FROM products').get().count > 0) return
 
   const seed = await loadSeed()
   const insertCategory = db.prepare('INSERT INTO categories (id, name, blurb, sort) VALUES (?, ?, ?, ?)')
@@ -254,6 +211,23 @@ export async function initDb() {
       id, name, category, price, compare_at, description, specs, stock, badge, rating, reviews, tone, image, active
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
   `)
+  const addProduct = (product) => {
+    insertProduct.run(
+      product.id,
+      product.name,
+      product.category,
+      product.price,
+      product.compareAt ?? null,
+      product.description,
+      JSON.stringify(product.specs ?? []),
+      product.stock,
+      product.badge ?? null,
+      product.rating,
+      product.reviews,
+      product.tone,
+      product.image || `/products/${product.id}.png`,
+    )
+  }
   const insertOrder = db.prepare(`
     INSERT INTO orders (
       id, created_at, status, customer_json, items_json, subtotal, discount, shipping, total, coupon
@@ -265,23 +239,7 @@ export async function initDb() {
     seed.CATEGORIES.forEach((category, index) => {
       insertCategory.run(category.id, category.name, category.blurb, index)
     })
-    for (const product of seed.PRODUCTS) {
-      insertProduct.run(
-        product.id,
-        product.name,
-        product.category,
-        product.price,
-        product.compareAt ?? null,
-        product.description,
-        JSON.stringify(product.specs),
-        product.stock,
-        product.badge ?? null,
-        product.rating,
-        product.reviews,
-        product.tone,
-        `/products/${product.id}.png`,
-      )
-    }
+    for (const product of seed.PRODUCTS) addProduct(product)
     for (const order of seed.SEED_ORDERS) {
       insertOrder.run(
         order.id,

@@ -1,7 +1,9 @@
 import { Component, FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
-import { STATUS_LABEL } from '../data'
+import { readLiveCatalog, snapshotAdminCatalog } from '../catalog-sync'
+import { CATEGORIES, STATUS_LABEL } from '../data'
 import { money } from '../pricing'
+import { useStore } from '../store'
 import type { Order, OrderStatus, Product, ShopSettings } from '../types'
 
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -52,6 +54,7 @@ export function AdminLogin() {
 
 export function AdminShell() {
   const navigate = useNavigate()
+  const { refreshCatalog } = useStore()
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -91,7 +94,9 @@ export function AdminShell() {
         <span className="admin-nav-label">צוות</span>
         <NavLink to="/admin/staff">נוכחות</NavLink>
         <NavLink to="/admin/settings">הגדרות</NavLink>
-        <Link to="/">לאתר</Link>
+        <Link to="/" onClick={() => void snapshotAdminCatalog().then(() => refreshCatalog())}>
+          לאתר
+        </Link>
         <button
           type="button"
           onClick={() => {
@@ -260,15 +265,21 @@ export function AdminDashboard() {
 }
 
 export function AdminProducts() {
+  const { refreshCatalog } = useStore()
   const [products, setProducts] = useState<Product[]>([])
   useEffect(() => {
-    void adminFetch<Product[]>('/api/admin/products').then(setProducts)
+    void adminFetch<Product[]>('/api/admin/products').then((rows) => {
+      const live = readLiveCatalog()
+      setProducts(live?.products ?? rows)
+    })
   }, [])
 
   async function remove(id: string) {
     if (!window.confirm('למחוק את המוצר?')) return
     await adminFetch(`/api/admin/products/${id}`, { method: 'DELETE' })
     setProducts((current) => current.filter((product) => product.id !== id))
+    await snapshotAdminCatalog()
+    await refreshCatalog()
   }
 
   return (
@@ -351,13 +362,16 @@ function optionCombos(form: typeof EMPTY) {
 export function AdminProductForm() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { refreshCatalog } = useStore()
   const [form, setForm] = useState(EMPTY)
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    void adminFetch<Array<{ id: string; name: string }>>('/api/admin/categories').then(setCategories).catch(() => setCategories([]))
+    void adminFetch<Array<{ id: string; name: string }>>('/api/admin/categories')
+      .then((rows) => setCategories(rows.length ? rows : CATEGORIES))
+      .catch(() => setCategories(CATEGORIES))
   }, [])
 
   useEffect(() => {
@@ -413,6 +427,8 @@ export function AdminProductForm() {
         method: id ? 'PATCH' : 'POST',
         body,
       })
+      await snapshotAdminCatalog()
+      await refreshCatalog()
       navigate('/admin/products')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
@@ -537,7 +553,7 @@ export function AdminProductForm() {
       </label>
       <label>
         העלאת תמונה
-        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+        <input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
       </label>
       <label className="check">
         <input type="checkbox" checked={form.active} onChange={(event) => set('active', event.target.checked)} />

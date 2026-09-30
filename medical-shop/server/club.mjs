@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { hashPassword, mapOrder, verifyPassword } from './db.mjs'
+import { persistLive } from './live-store.mjs'
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6]
 const SIZE_IDS = new Set(['back', 'knee', 'ankle', 'bandage'])
@@ -1167,6 +1168,7 @@ export function registerClub(app, { db, requireAdmin }) {
     const categoryId = id('cat')
     const sort = db.prepare('SELECT * FROM categories').all().reduce((max, row) => Math.max(max, Number(row.sort) || 0), -1) + 1
     db.prepare('INSERT INTO categories (id, name, blurb, sort) VALUES (?, ?, ?, ?)').run(categoryId, name, blurb || name, sort)
+    persistLive(db)
     res.status(201).json(db.prepare('SELECT * FROM categories WHERE id = ?').get(categoryId))
   })
 
@@ -1177,6 +1179,7 @@ export function registerClub(app, { db, requireAdmin }) {
     const blurb = String(req.body?.blurb ?? current.blurb).trim()
     if (!name) return res.status(400).json({ error: 'חסר שם קטגוריה' })
     db.prepare('UPDATE categories SET name = ?, blurb = ? WHERE id = ?').run(name, blurb, current.id)
+    persistLive(db)
     res.json(db.prepare('SELECT * FROM categories WHERE id = ?').get(current.id))
   })
 
@@ -1184,6 +1187,7 @@ export function registerClub(app, { db, requireAdmin }) {
     const used = db.prepare('SELECT id FROM products WHERE category = ?').all(req.params.id)
     if (used.length) return res.status(400).json({ error: 'יש מוצרים בקטגוריה. העבירו אותם לפני המחיקה' })
     db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id)
+    persistLive(db)
     res.json({ ok: true })
   })
 

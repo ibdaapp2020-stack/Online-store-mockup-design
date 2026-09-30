@@ -1,42 +1,54 @@
 import { randomBytes } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
 import { applyClubDiscount, adminSettings, lineOptions, nextSettings, personalCoupon, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, takeVariantStock, writeSessionCookie } from './club.mjs'
-import { bootError as seedError, db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
+import { db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
+import { persistLive, restoreLive } from './live-store.mjs'
 
 loadEnv()
-let bootError = seedError
-try {
-  if (!bootError) await initDb()
-} catch (error) {
-  bootError = error
-}
+await initDb()
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const uploads = process.env.VERCEL ? join('/tmp', 'uploads') : join(root, 'public', 'uploads')
+const uploads = join(root, 'public', 'uploads')
 mkdirSync(uploads, { recursive: true })
 
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.heic', '.heif', '.avif', '.ico', '.tif', '.tiff', '.jfif', '.pjp', '.pjpeg'])
+
+function isImageUpload(file) {
+  const mime = String(file.mimetype || '').toLowerCase()
+  const ext = extname(file.originalname || '').toLowerCase()
+  return mime.startsWith('image/') || IMAGE_EXT.has(ext)
+}
+
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: uploads,
-    filename: (_req, file, callback) => {
-      const ext = extname(file.originalname).toLowerCase()
-      callback(null, `${Date.now()}-${randomBytes(4).toString('hex')}${ext}`)
-    },
-  }),
-  limits: { fileSize: 4 * 1024 * 1024 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
   fileFilter: (_req, file, callback) => {
-    callback(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype))
+    if (isImageUpload(file)) callback(null, true)
+    else callback(new Error('אפשר להעלות כל סוג תמונה: PNG, JPG, JPEG, GIF, WEBP ועוד'))
   },
 })
 
+function storedImage(file) {
+  const ext = extname(file.originalname || '').toLowerCase() || '.png'
+  const mime = String(file.mimetype || '').startsWith('image/') ? file.mimetype : `image/${ext.slice(1) || 'png'}`
+  const name = `${Date.now()}-${randomBytes(4).toString('hex')}${ext}`
+  try {
+    writeFileSync(join(uploads, name), file.buffer)
+  } catch {
+    // On serverless hosts the disk may be read-only; the data URL still works.
+  }
+  return `data:${mime};base64,${file.buffer.toString('base64')}`
+}
+
 const app = express()
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '16mb' }))
 app.use(cookieParser())
+app.use(express.static(join(root, 'public')))
 
 function requireAdmin(req, res, next) {
   const token = req.cookies.medica_admin
@@ -46,15 +58,11 @@ function requireAdmin(req, res, next) {
   next()
 }
 
-app.use('/api', (req, res, next) => {
-  if (!bootError) return next()
-  res.status(500).json({ error: bootError.message })
-})
-
 app.get('/api/catalog', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0')
   const categories = db.prepare('SELECT id, name, blurb FROM categories ORDER BY sort').all()
   const products = db
-    .prepare('SELECT * FROM products WHERE active = 1 ORDER BY rowid')
+    .prepare('SELECT * FROM products WHERE active = 1 ORDER BY rowid DESC')
     .all()
     .map(mapProduct)
   res.json({ categories, products, settings: publicSettings(getSettings()) })
@@ -241,7 +249,7 @@ function validProduct(body, product) {
 }
 
 app.post('/api/admin/products', requireAdmin, upload.single('imageFile'), (req, res) => {
-  const image = req.file ? `/uploads/${req.file.filename}` : String(req.body.image || '').trim()
+  const image = req.file ? storedImage(req.file) : String(req.body.image || '').trim()
   const product = readProduct(req.body, image || '/products/kit.png')
   if (!validProduct(req.body, product)) return res.status(400).json({ error: 'חובה למלא שם, קטגוריה, מחיר וכמות' })
   let id = String(req.body.id || '')
@@ -271,13 +279,14 @@ app.post('/api/admin/products', requireAdmin, upload.single('imageFile'), (req, 
     product.active,
   )
   saveProductOptions(db, id, req.body)
+  persistLive(db)
   res.status(201).json(mapProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(id)))
 })
 
 app.patch('/api/admin/products/:id', requireAdmin, upload.single('imageFile'), (req, res) => {
   const current = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
   if (!current) return res.status(404).json({ error: 'המוצר לא נמצא' })
-  const image = req.file ? `/uploads/${req.file.filename}` : String(req.body.image || current.image)
+  const image = req.file ? storedImage(req.file) : String(req.body.image || current.image)
   const product = readProduct(req.body, image)
   if (!validProduct(req.body, product)) return res.status(400).json({ error: 'חובה למלא שם, קטגוריה, מחיר וכמות' })
   db.prepare(
@@ -299,11 +308,13 @@ app.patch('/api/admin/products/:id', requireAdmin, upload.single('imageFile'), (
     req.params.id,
   )
   saveProductOptions(db, req.params.id, req.body)
+  persistLive(db)
   res.json(mapProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)))
 })
 
 app.delete('/api/admin/products/:id', requireAdmin, (req, res) => {
   db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id)
+  persistLive(db)
   res.json({ ok: true })
 })
 
@@ -331,11 +342,24 @@ app.patch('/api/admin/settings', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'הגדרות לא תקינות' })
   }
   db.prepare('UPDATE settings SET data = ? WHERE id = 1').run(JSON.stringify(next))
+  persistLive(db)
   res.json(adminSettings(next))
 })
 
 registerClub(app, { db, requireAdmin })
+restoreLive(db)
+persistLive(db)
 
-const port = Number(process.env.PORT) || 5180
-if (process.env.VERCEL) app.listen(port)
-else app.listen(port, '127.0.0.1', () => console.log(`API http://127.0.0.1:${port}`))
+app.use((error, _req, res, next) => {
+  if (!error) return next()
+  if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'התמונה גדולה מדי. אפשר עד 12MB.' })
+  }
+  return res.status(400).json({ error: error.message || 'העלאה נכשלה' })
+})
+
+app.listen(5180, '127.0.0.1', () => {
+  console.log('API http://127.0.0.1:5180')
+})
+
+export default app
