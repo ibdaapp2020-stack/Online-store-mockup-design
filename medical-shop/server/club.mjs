@@ -389,7 +389,7 @@ function ensureSchema(db) {
     }
   }
   try {
-    db.prepare("UPDATE admin SET username = 'admin' WHERE id = 1 AND (username IS NULL OR username = '')").run()
+    db.prepare("UPDATE admin SET username = ? WHERE id = 1 AND (username IS NULL OR username = '')").run(String(process.env.ADMIN_USERNAME || 'propharm').toLowerCase())
   } catch {
     /* username column is filled by default */
   }
@@ -765,8 +765,8 @@ export function registerClub(app, { db, requireAdmin }) {
     const password = String(req.body?.password ?? '')
     if (!login || !password) return res.status(401).json({ error: 'שם משתמש וסיסמה הם שדות חובה' })
     const admin = db.prepare('SELECT username, password_hash FROM admin WHERE id = 1').get()
-    const adminName = String(admin?.username || 'admin').toLowerCase()
-    const isAdminLogin = login === adminName || login === 'admin'
+    const adminName = String(admin?.username || process.env.ADMIN_USERNAME || 'propharm').toLowerCase()
+    const isAdminLogin = login === adminName
     if (admin && isAdminLogin && verifyPassword(password, admin.password_hash)) {
       clearRoleCookies(res)
       const token = signSession(db, 'admin')

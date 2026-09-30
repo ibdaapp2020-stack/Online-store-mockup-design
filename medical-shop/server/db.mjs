@@ -195,7 +195,8 @@ export async function initDb() {
     db.prepare('INSERT INTO settings (id, data) VALUES (1, ?)').run(JSON.stringify(DEFAULT_SETTINGS))
   }
 
-  const password = process.env.ADMIN_PASSWORD || 'MedicaAdmin1948'
+  const password = process.env.ADMIN_PASSWORD || 'SyncShop2026'
+  const adminUser = String(process.env.ADMIN_USERNAME || 'propharm').toLowerCase()
   const admin = db.prepare('SELECT id FROM admin WHERE id = 1').get()
   if (!admin) {
     db.prepare('INSERT INTO admin (id, password_hash) VALUES (1, ?)').run(hashPassword(password))
@@ -203,7 +204,7 @@ export async function initDb() {
     db.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').run(hashPassword(password))
   }
   try {
-    db.prepare("UPDATE admin SET username = 'admin' WHERE id = 1").run()
+    db.prepare('UPDATE admin SET username = ? WHERE id = 1').run(adminUser)
   } catch {
     /* username column is added later */
   }

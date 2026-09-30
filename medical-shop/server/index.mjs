@@ -39,10 +39,44 @@ function storedImage(file) {
   const name = `${Date.now()}-${randomBytes(4).toString('hex')}${ext}`
   try {
     writeFileSync(join(uploads, name), file.buffer)
+    return `/uploads/${name}`
   } catch {
     // On serverless hosts the disk may be read-only; the data URL still works.
+    return `data:${mime};base64,${file.buffer.toString('base64')}`
   }
-  return `data:${mime};base64,${file.buffer.toString('base64')}`
+}
+
+function materializeImages() {
+  const rows = db.prepare("SELECT id, image FROM products WHERE image LIKE 'data:%'").all()
+  const update = db.prepare('UPDATE products SET image = ? WHERE id = ?')
+  for (const row of rows) {
+    const match = /^data:([^;,]+)(?:;[^,]*)?;base64,([\s\S]+)$/.exec(String(row.image || ''))
+    if (!match) continue
+    const mime = match[1].toLowerCase()
+    const ext = mime.includes('png')
+      ? '.png'
+      : mime.includes('jpeg') || mime.includes('jpg')
+        ? '.jpg'
+        : mime.includes('webp')
+          ? '.webp'
+          : mime.includes('gif')
+            ? '.gif'
+            : mime.includes('svg')
+              ? '.svg'
+              : mime.includes('bmp')
+                ? '.bmp'
+                : mime.includes('avif')
+                  ? '.avif'
+                  : '.img'
+    const safeId = String(row.id).replace(/[^a-z0-9-]+/gi, '').slice(0, 40) || 'item'
+    const name = `${safeId}-${randomBytes(3).toString('hex')}${ext}`
+    try {
+      writeFileSync(join(uploads, name), Buffer.from(match[2], 'base64'))
+      update.run(`/uploads/${name}`, row.id)
+    } catch {
+      // Keep the data URL when the disk cannot store the file.
+    }
+  }
 }
 
 const app = express()
@@ -146,16 +180,20 @@ app.post('/api/orders', (req, res) => {
 })
 
 app.post('/api/admin/login', (req, res) => {
-  const admin = db.prepare('SELECT username, password_hash FROM admin WHERE id = 1').get()
-  const username = String(admin?.username || 'admin').toLowerCase()
-  const given = String(req.body?.username ?? req.body?.login ?? 'admin').trim().toLowerCase() || 'admin'
-  if (!admin || given !== username || !verifyPassword(String(req.body?.password ?? ''), admin.password_hash)) {
-    return res.status(401).json({ error: 'שם המשתמש או הסיסמה שגויים' })
+  try {
+    const admin = db.prepare('SELECT username, password_hash FROM admin WHERE id = 1').get()
+    const username = String(admin?.username || process.env.ADMIN_USERNAME || 'propharm').toLowerCase()
+    const given = String(req.body?.username ?? req.body?.login ?? '').trim().toLowerCase() || username
+    if (!admin || given !== username || !verifyPassword(String(req.body?.password ?? ''), admin.password_hash)) {
+      return res.status(401).json({ error: 'שם המשתמש או הסיסמה שגויים' })
+    }
+    const token = signSession(db, 'admin')
+    db.prepare('INSERT INTO sessions (token, created_at) VALUES (?, ?)').run(token, new Date().toISOString())
+    writeSessionCookie(res, 'medica_admin', token)
+    res.json({ ok: true })
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'כניסת ניהול נכשלה' })
   }
-  const token = signSession(db, 'admin')
-  db.prepare('INSERT INTO sessions (token, created_at) VALUES (?, ?)').run(token, new Date().toISOString())
-  writeSessionCookie(res, 'medica_admin', token)
-  res.json({ ok: true })
 })
 
 app.post('/api/admin/logout', (req, res) => {
@@ -208,7 +246,13 @@ app.get('/api/admin/stats', requireAdmin, (_req, res) => {
 })
 
 app.get('/api/admin/products', requireAdmin, (_req, res) => {
-  res.json(db.prepare('SELECT * FROM products ORDER BY rowid').all().map(mapProduct))
+  res.json(db.prepare('SELECT * FROM products ORDER BY rowid DESC').all().map(mapProduct))
+})
+
+app.get('/api/admin/products/:id', requireAdmin, (req, res) => {
+  const row = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'המוצר לא נמצא' })
+  res.json(mapProduct(row))
 })
 
 function readProduct(body, image) {
@@ -348,12 +392,13 @@ app.patch('/api/admin/settings', requireAdmin, (req, res) => {
 
 registerClub(app, { db, requireAdmin })
 try {
-  db.prepare("UPDATE admin SET username = 'admin' WHERE id = 1").run()
+  db.prepare('UPDATE admin SET username = ? WHERE id = 1').run(String(process.env.ADMIN_USERNAME || 'propharm').toLowerCase())
 } catch {
   /* username column missing */
 }
-db.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').run(hashPassword(process.env.ADMIN_PASSWORD || 'MedicaAdmin1948'))
+db.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').run(hashPassword(process.env.ADMIN_PASSWORD || 'SyncShop2026'))
 restoreLive(db)
+materializeImages()
 persistLive(db)
 
 app.use((error, _req, res, next) => {

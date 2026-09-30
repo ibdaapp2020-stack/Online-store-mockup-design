@@ -1,6 +1,6 @@
 import { Component, FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
-import { readLiveCatalog, snapshotAdminCatalog } from '../catalog-sync'
+import { preferStoredImage, readLiveCatalog, snapshotAdminCatalog } from '../catalog-sync'
 import { CATEGORIES, STATUS_LABEL } from '../data'
 import { money } from '../pricing'
 import { useStore } from '../store'
@@ -15,7 +15,7 @@ async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function AdminLogin() {
   const navigate = useNavigate()
-  const [username, setUsername] = useState('admin')
+  const [username, setUsername] = useState('propharm')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
@@ -270,14 +270,36 @@ export function AdminDashboard() {
 }
 
 export function AdminProducts() {
-  const { refreshCatalog } = useStore()
+  const { refreshCatalog, categories: storeCategories } = useStore()
   const [products, setProducts] = useState<Product[]>([])
+  const [categoryNames, setCategoryNames] = useState<Array<{ id: string; name: string }>>(CATEGORIES)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState('all')
+  const [visibility, setVisibility] = useState('all')
+  const [stock, setStock] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
   useEffect(() => {
-    void adminFetch<Product[]>('/api/admin/products').then((rows) => {
-      const live = readLiveCatalog()
-      setProducts(live?.products ?? rows)
-    })
-  }, [])
+    void adminFetch<Product[]>('/api/admin/products')
+      .then((rows) => {
+        const live = readLiveCatalog()
+        if (!live?.products.length) {
+          setProducts(rows)
+          return
+        }
+        const apiById = new Map(rows.map((product) => [product.id, product]))
+        const merged = new Map<string, Product>()
+        for (const product of live.products) merged.set(product.id, preferStoredImage(product, apiById.get(product.id)))
+        for (const product of rows) if (!merged.has(product.id)) merged.set(product.id, product)
+        setProducts([...merged.values()])
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את המוצרים'))
+      .finally(() => setLoading(false))
+    void adminFetch<Array<{ id: string; name: string }>>('/api/admin/categories')
+      .then((rows) => setCategoryNames(rows.length ? rows : CATEGORIES))
+      .catch(() => setCategoryNames(storeCategories.length ? storeCategories : CATEGORIES))
+  }, [storeCategories])
 
   async function remove(id: string) {
     if (!window.confirm('למחוק את המוצר?')) return
@@ -287,6 +309,26 @@ export function AdminProducts() {
     await refreshCatalog()
   }
 
+  const names = new Map<string, string>()
+  for (const item of categoryNames) names.set(item.id, item.name)
+  for (const item of storeCategories) names.set(item.id, item.name)
+  const categoryOptions = [...new Set(products.map((product) => product.category))].map((id) => ({
+    id,
+    name: names.get(id) || id,
+  }))
+  const needle = query.trim().toLowerCase()
+  const visible = products.filter((product) => {
+    if (needle && !product.name.toLowerCase().includes(needle)) return false
+    if (category !== 'all' && product.category !== category) return false
+    if (visibility === 'shown' && product.active === false) return false
+    if (visibility === 'hidden' && product.active !== false) return false
+    if (stock === 'in' && product.stock <= 0) return false
+    if (stock === 'out' && product.stock > 0) return false
+    if (stock === 'low' && (product.stock <= 0 || product.stock > 5)) return false
+    return true
+  })
+  const filtering = Boolean(needle || category !== 'all' || visibility !== 'all' || stock !== 'all')
+
   return (
     <div>
       <div className="section-head">
@@ -295,14 +337,66 @@ export function AdminProducts() {
           מוצר חדש
         </Link>
       </div>
+      <div className="admin-filters">
+        <label>
+          חיפוש לפי שם
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="הקלידו שם מוצר" />
+        </label>
+        <label>
+          קטגוריה
+          <select value={category} onChange={(event) => setCategory(event.target.value)}>
+            <option value="all">כל הקטגוריות</option>
+            {categoryOptions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          תצוגה
+          <select value={visibility} onChange={(event) => setVisibility(event.target.value)}>
+            <option value="all">הכל</option>
+            <option value="shown">מוצגים באתר</option>
+            <option value="hidden">מוסתרים</option>
+          </select>
+        </label>
+        <label>
+          מלאי
+          <select value={stock} onChange={(event) => setStock(event.target.value)}>
+            <option value="all">הכל</option>
+            <option value="in">במלאי</option>
+            <option value="low">מלאי נמוך</option>
+            <option value="out">אזל</option>
+          </select>
+        </label>
+      </div>
+      <p className="admin-count">
+        {loading ? 'טוען מוצרים...' : `מציג ${visible.length} מתוך ${products.length}`}
+        {filtering ? (
+          <button
+            type="button"
+            className="text-btn"
+            onClick={() => {
+              setQuery('')
+              setCategory('all')
+              setVisibility('all')
+              setStock('all')
+            }}
+          >
+            נקה סינון
+          </button>
+        ) : null}
+      </p>
+      {error ? <p className="form-errors">{error}</p> : null}
       <div className="admin-table">
-        {products.map((product) => (
+        {visible.map((product) => (
           <article key={product.id}>
-            <img src={product.image} alt="" />
+            <img src={product.image || `/products/${product.id}.png`} alt="" loading="lazy" decoding="async" />
             <div>
               <strong>{product.name}</strong>
               <p>
-                {money(product.price)} · מלאי {product.stock} · {product.active ? 'מוצג' : 'מוסתר'}
+                {names.get(product.category) || product.category} · {money(product.price)} · מלאי {product.stock} · {product.active ? 'מוצג' : 'מוסתר'}
               </p>
             </div>
             <Link to={`/admin/products/${product.id}`}>עריכה</Link>
@@ -312,6 +406,7 @@ export function AdminProducts() {
           </article>
         ))}
       </div>
+      {!loading && visible.length === 0 ? <p className="empty">לא נמצאו מוצרים לפי החיפוש או הסינון.</p> : null}
     </div>
   )
 }
@@ -381,9 +476,7 @@ export function AdminProductForm() {
 
   useEffect(() => {
     if (!id) return
-    void adminFetch<Product[]>('/api/admin/products').then((products) => {
-      const product = products.find((item) => item.id === id)
-      if (!product) return
+    void adminFetch<Product>(`/api/admin/products/${id}`).then((product) => {
       setForm({
         name: product.name,
         category: product.category,

@@ -27,11 +27,22 @@ export function saveLiveCatalog(data: Omit<LiveCatalog, 'savedAt'> & { savedAt?:
   window.dispatchEvent(new Event('medica-catalog'))
 }
 
+export function preferStoredImage(product: Product, api?: Product): Product {
+  if (!product.image?.startsWith('data:')) return product
+  if (api?.image && !api.image.startsWith('data:')) return { ...product, image: api.image }
+  return product
+}
+
 export function applyLiveCatalog(apiProducts: Product[], apiCategories: Category[], apiSettings: ShopSettings) {
   const live = readLiveCatalog()
   if (!live) return { products: apiProducts, categories: apiCategories, settings: apiSettings }
+  const apiById = new Map(apiProducts.map((product) => [product.id, product]))
+  const products = live.products.map((product) => preferStoredImage(product, apiById.get(product.id)))
+  if (products.some((product, index) => product.image !== live.products[index]?.image)) {
+    localStorage.setItem(KEY, JSON.stringify({ ...live, products, savedAt: Date.now() }))
+  }
   return {
-    products: live.products.filter((product) => product.active !== false),
+    products: products.filter((product) => product.active !== false),
     categories: live.categories.length ? live.categories : apiCategories,
     settings: live.settings ?? apiSettings,
   }

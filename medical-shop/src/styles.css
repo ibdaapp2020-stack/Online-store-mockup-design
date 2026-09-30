@@ -377,6 +377,9 @@ input, select {
 .admin-stats span { color: var(--muted); }
 .admin-stats strong { display: block; font-size: 1.6rem; }
 .admin-list { padding: 0; list-style: none; display: grid; gap: 0.4rem; }
+.admin-filters { display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(140px, 1fr)); gap: 0.7rem; margin: 0.2rem 0 0.8rem; }
+.admin-filters label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 700; }
+.admin-count { display: flex; align-items: center; gap: 0.8rem; margin: 0 0 0.7rem; color: var(--muted); }
 .admin-table { display: grid; gap: 0.6rem; }
 .admin-table article { display: grid; grid-template-columns: 64px 1fr auto auto; gap: 0.8rem; align-items: center; }
 .admin-table img { width: 64px; height: 64px; object-fit: contain; background: #f7f4ef; border-radius: 10px; }
@@ -398,7 +401,7 @@ input, select {
   }
   .admin-logo, .admin-side strong, .admin-nav-label { display: none; }
   .admin-side a, .admin-side button { white-space: nowrap; background: var(--teal-soft); color: var(--ink); }
-  .admin-stats, .admin-table article, .admin-orders article { grid-template-columns: 1fr; }
+  .admin-filters, .admin-stats, .admin-table article, .admin-orders article { grid-template-columns: 1fr; }
   .trust article { padding: 1.05rem 1.1rem; }
   .trust h2 { margin-bottom: 0.35rem; }
   .page { padding-top: 0.8rem; }

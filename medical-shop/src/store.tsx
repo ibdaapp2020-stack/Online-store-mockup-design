@@ -114,13 +114,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener('medica-catalog', onCatalog)
     window.addEventListener('storage', onCatalog)
-    window.addEventListener('focus', onCatalog)
-    document.addEventListener('visibilitychange', onCatalog)
     return () => {
       window.removeEventListener('medica-catalog', onCatalog)
       window.removeEventListener('storage', onCatalog)
-      window.removeEventListener('focus', onCatalog)
-      document.removeEventListener('visibilitychange', onCatalog)
     }
   }, [])
 
