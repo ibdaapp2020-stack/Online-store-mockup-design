@@ -303,11 +303,11 @@ export function AdminProducts() {
 const EMPTY = {
   name: '',
   category: 'first-aid',
-  price: '0',
+  price: '',
   compareAt: '',
   description: '',
   specs: '',
-  stock: '0',
+  stock: '',
   badge: '',
   rating: '4.5',
   reviews: '0',
@@ -428,13 +428,14 @@ export function AdminProductForm() {
   return (
     <form className="panel form admin-form" onSubmit={onSubmit}>
       <h1>{id ? 'עריכת מוצר' : 'מוצר חדש'}</h1>
+      <p className="muted">חובה: שם, קטגוריה, מחיר וכמות. שאר השדות אופציונליים.</p>
       <label>
         שם
         <input value={form.name} onChange={(event) => set('name', event.target.value)} required />
       </label>
       <label>
         קטגוריה
-        <select value={form.category} onChange={(event) => set('category', event.target.value)}>
+        <select value={form.category} onChange={(event) => set('category', event.target.value)} required>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
@@ -445,17 +446,17 @@ export function AdminProductForm() {
       <div className="split-fields">
         <label>
           מחיר
-          <input value={form.price} onChange={(event) => set('price', event.target.value)} inputMode="numeric" />
+          <input value={form.price} onChange={(event) => set('price', event.target.value)} inputMode="numeric" required />
         </label>
         <label>
           מחיר לפני הנחה
-          <input value={form.compareAt} onChange={(event) => set('compareAt', event.target.value)} inputMode="numeric" />
+          <input value={form.compareAt} onChange={(event) => set('compareAt', event.target.value)} inputMode="numeric" placeholder="לא חובה" />
         </label>
       </div>
       <div className="split-fields">
         <label>
-          מלאי
-          <input value={form.stock} onChange={(event) => set('stock', event.target.value)} inputMode="numeric" />
+          כמות
+          <input value={form.stock} onChange={(event) => set('stock', event.target.value)} inputMode="numeric" required />
         </label>
         <label>
           תג
@@ -469,11 +470,11 @@ export function AdminProductForm() {
       </div>
       <label>
         תיאור
-        <textarea value={form.description} onChange={(event) => set('description', event.target.value)} rows={3} />
+        <textarea value={form.description} onChange={(event) => set('description', event.target.value)} rows={3} placeholder="לא חובה" />
       </label>
       <label>
         מפרט, שורה לכל פריט
-        <textarea value={form.specs} onChange={(event) => set('specs', event.target.value)} rows={4} />
+        <textarea value={form.specs} onChange={(event) => set('specs', event.target.value)} rows={4} placeholder="לא חובה" />
       </label>
       <div className="choice-row">
         <label className="check">
@@ -532,7 +533,7 @@ export function AdminProductForm() {
       ) : null}
       <label>
         כתובת תמונה
-        <input value={form.image} onChange={(event) => set('image', event.target.value)} />
+        <input value={form.image} onChange={(event) => set('image', event.target.value)} placeholder="לא חובה" />
       </label>
       <label>
         העלאת תמונה

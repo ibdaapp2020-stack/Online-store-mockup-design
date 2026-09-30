@@ -225,14 +225,25 @@ function readProduct(body, image) {
   }
 }
 
-function validProduct(product) {
-  return product.name && product.category && Number.isFinite(product.price) && product.price >= 0 && Number.isInteger(product.stock) && product.stock >= 0 && product.specs.length > 0
+function validProduct(body, product) {
+  const priceText = String(body.price ?? '').trim()
+  const stockText = String(body.stock ?? '').trim()
+  return Boolean(
+    product.name &&
+      product.category &&
+      priceText !== '' &&
+      stockText !== '' &&
+      Number.isFinite(product.price) &&
+      product.price >= 0 &&
+      Number.isInteger(product.stock) &&
+      product.stock >= 0,
+  )
 }
 
 app.post('/api/admin/products', requireAdmin, upload.single('imageFile'), (req, res) => {
   const image = req.file ? `/uploads/${req.file.filename}` : String(req.body.image || '').trim()
   const product = readProduct(req.body, image || '/products/kit.png')
-  if (!validProduct(product)) return res.status(400).json({ error: 'חסרים שדות מוצר' })
+  if (!validProduct(req.body, product)) return res.status(400).json({ error: 'חובה למלא שם, קטגוריה, מחיר וכמות' })
   let id = String(req.body.id || '')
     .trim()
     .toLowerCase()
@@ -268,7 +279,7 @@ app.patch('/api/admin/products/:id', requireAdmin, upload.single('imageFile'), (
   if (!current) return res.status(404).json({ error: 'המוצר לא נמצא' })
   const image = req.file ? `/uploads/${req.file.filename}` : String(req.body.image || current.image)
   const product = readProduct(req.body, image)
-  if (!validProduct(product)) return res.status(400).json({ error: 'חסרים שדות מוצר' })
+  if (!validProduct(req.body, product)) return res.status(400).json({ error: 'חובה למלא שם, קטגוריה, מחיר וכמות' })
   db.prepare(
     `UPDATE products SET name=?, category=?, price=?, compare_at=?, description=?, specs=?, stock=?, badge=?, rating=?, reviews=?, tone=?, image=?, active=? WHERE id=?`,
   ).run(
