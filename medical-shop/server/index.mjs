@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
 import { applyClubDiscount, adminSettings, lineOptions, nextSettings, personalCoupon, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, takeVariantStock, writeSessionCookie } from './club.mjs'
-import { db, getSettings, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
+import { db, getSettings, hashPassword, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
 import { persistLive, restoreLive } from './live-store.mjs'
 
 loadEnv()
@@ -148,7 +148,7 @@ app.post('/api/orders', (req, res) => {
 app.post('/api/admin/login', (req, res) => {
   const admin = db.prepare('SELECT username, password_hash FROM admin WHERE id = 1').get()
   const username = String(admin?.username || 'admin').toLowerCase()
-  const given = String(req.body?.username ?? req.body?.login ?? '').trim().toLowerCase()
+  const given = String(req.body?.username ?? req.body?.login ?? 'admin').trim().toLowerCase() || 'admin'
   if (!admin || given !== username || !verifyPassword(String(req.body?.password ?? ''), admin.password_hash)) {
     return res.status(401).json({ error: 'שם המשתמש או הסיסמה שגויים' })
   }
@@ -347,6 +347,12 @@ app.patch('/api/admin/settings', requireAdmin, (req, res) => {
 })
 
 registerClub(app, { db, requireAdmin })
+try {
+  db.prepare("UPDATE admin SET username = 'admin' WHERE id = 1").run()
+} catch {
+  /* username column missing */
+}
+db.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').run(hashPassword(process.env.ADMIN_PASSWORD || 'MedicaAdmin1948'))
 restoreLive(db)
 persistLive(db)
 

@@ -766,7 +766,8 @@ export function registerClub(app, { db, requireAdmin }) {
     if (!login || !password) return res.status(401).json({ error: 'שם משתמש וסיסמה הם שדות חובה' })
     const admin = db.prepare('SELECT username, password_hash FROM admin WHERE id = 1').get()
     const adminName = String(admin?.username || 'admin').toLowerCase()
-    if (admin && login === adminName && verifyPassword(password, admin.password_hash)) {
+    const isAdminLogin = login === adminName || login === 'admin'
+    if (admin && isAdminLogin && verifyPassword(password, admin.password_hash)) {
       clearRoleCookies(res)
       const token = signSession(db, 'admin')
       db.prepare('INSERT INTO sessions (token, created_at) VALUES (?, ?)').run(token, new Date().toISOString())

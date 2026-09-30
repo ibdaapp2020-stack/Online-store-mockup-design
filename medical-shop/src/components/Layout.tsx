@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PICKUP } from '../pickup'
 import { money } from '../pricing'
 import { useStore } from '../store'
@@ -96,6 +96,9 @@ export function Layout() {
             </button>
           </div>
           <p className="footer-note">{settings.disclaimer}</p>
+          <Link className="footer-admin" to="/admin/login">
+            כניסת ניהול
+          </Link>
         </div>
       </footer>
       {termsOpen ? (

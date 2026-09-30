@@ -15,6 +15,7 @@ async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function AdminLogin() {
   const navigate = useNavigate()
+  const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
@@ -25,11 +26,11 @@ export function AdminLogin() {
       await adminFetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       })
       navigate('/admin')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'סיסמה שגויה')
+      setError(reason instanceof Error ? reason.message : 'שם המשתמש או הסיסמה שגויים')
     }
   }
 
@@ -39,8 +40,12 @@ export function AdminLogin() {
         <img className="admin-logo" src="/logo.jpg" alt="PRO PHARM" />
         <h1>סופר אדמין</h1>
         <label>
+          שם משתמש
+          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoFocus />
+        </label>
+        <label>
           סיסמה
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoFocus />
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
         </label>
         {error ? <p className="form-errors">{error}</p> : null}
         <button className="btn" type="submit">
@@ -63,7 +68,7 @@ export function AdminShell() {
     fetch('/api/admin/me', { credentials: 'include' })
       .then((response) => {
         if (!active) return
-        if (response.status === 401) navigate('/account?role=admin')
+        if (response.status === 401) navigate('/admin/login')
         else setReady(true)
       })
       .catch(() => {
@@ -100,7 +105,7 @@ export function AdminShell() {
         <button
           type="button"
           onClick={() => {
-            void adminFetch('/api/admin/logout', { method: 'POST' }).then(() => navigate('/account?role=admin'))
+            void adminFetch('/api/admin/logout', { method: 'POST' }).then(() => navigate('/admin/login'))
           }}
         >
           יציאה

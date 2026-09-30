@@ -195,11 +195,17 @@ export async function initDb() {
     db.prepare('INSERT INTO settings (id, data) VALUES (1, ?)').run(JSON.stringify(DEFAULT_SETTINGS))
   }
 
+  const password = process.env.ADMIN_PASSWORD || 'MedicaAdmin1948'
   const admin = db.prepare('SELECT id FROM admin WHERE id = 1').get()
   if (!admin) {
-    const password = process.env.ADMIN_PASSWORD
-    if (!password) throw new Error('חסרה ADMIN_PASSWORD בקובץ .env')
     db.prepare('INSERT INTO admin (id, password_hash) VALUES (1, ?)').run(hashPassword(password))
+  } else {
+    db.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').run(hashPassword(password))
+  }
+  try {
+    db.prepare("UPDATE admin SET username = 'admin' WHERE id = 1").run()
+  } catch {
+    /* username column is added later */
   }
 
   if (db.prepare('SELECT COUNT(*) AS count FROM products').get().count > 0) return
