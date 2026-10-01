@@ -46,16 +46,12 @@ async function claimOwnerAdmin(user: User): Promise<UserRole | null> {
   const current = await getRole(user.uid)
   if (current === 'ADMIN') return current
   if (String(user.email || '').toLowerCase() !== OWNER_ADMIN_EMAIL) return current
-  try {
-    await setDoc(
-      doc(db(), 'users', user.uid),
-      { role: 'ADMIN', email: OWNER_ADMIN_EMAIL, createdAt: new Date().toISOString() },
-      { merge: true },
-    )
-    return (await getRole(user.uid)) || 'ADMIN'
-  } catch {
-    return current
-  }
+  await setDoc(
+    doc(db(), 'users', user.uid),
+    { role: 'ADMIN', email: OWNER_ADMIN_EMAIL, createdAt: new Date().toISOString() },
+    { merge: true },
+  )
+  return (await getRole(user.uid)) || 'ADMIN'
 }
 
 export async function requireAdmin() {

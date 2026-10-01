@@ -50,6 +50,8 @@ if (!uid) {
   console.error('AUTH_FAIL no user')
   process.exit(1)
 }
+console.log(`ADMIN_EMAIL=${email}`)
+console.log(`ADMIN_UID=${uid}`)
 
 const userRef = doc(firestore, 'users', uid)
 let role = null
@@ -70,8 +72,6 @@ if (role !== 'ADMIN') {
   }
 }
 
-console.log(`ADMIN_EMAIL=${email}`)
-console.log(`ADMIN_UID=${uid}`)
 console.log(`ADMIN_CREATED=${created ? 'YES' : 'NO'}`)
 console.log(`ADMIN_ROLE=${role}`)
 console.log(`ADMIN_ROLE_PASS=${role === 'ADMIN' ? 'PASS' : 'FAIL'}`)
