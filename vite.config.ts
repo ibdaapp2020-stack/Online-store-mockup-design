@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const medicalApiUrl = process.env.MEDICAL_API_URL || 'http://127.0.0.1:5180'
+const apiUrl = process.env.API_URL || 'http://127.0.0.1:5180'
 
 export default defineConfig({
   plugins: [react()],
@@ -10,7 +10,7 @@ export default defineConfig({
     host: '127.0.0.1',
     allowedHosts: ['.trycloudflare.com'],
     proxy: {
-      '/api': medicalApiUrl,
+      '/api': apiUrl,
     },
   },
 })

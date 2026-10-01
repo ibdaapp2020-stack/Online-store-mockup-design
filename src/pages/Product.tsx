@@ -26,7 +26,7 @@ export function ProductPage() {
     setChoiceError('')
   }, [id])
 
-  if (!ready) return null
+  if (!ready) return <p className="muted">טוען מוצר...</p>
   if (!product) {
     return <EmptyState title="המוצר לא נמצא" text="הפריט אינו בקטלוג." action={<Link className="btn" to="/catalog">חזרה לקטלוג</Link>} />
   }

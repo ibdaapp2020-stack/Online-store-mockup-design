@@ -130,14 +130,14 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
       const rows = orders.filter((order) => order.createdAt.slice(0, 10) === date)
       daily.push({ date: date.slice(5), total: rows.reduce((sum, order) => sum + order.total, 0), count: rows.length })
     }
-    const pipeline = { received: 0, packing: 0, shipped: 0, delivered: 0 }
+    const pipeline = { received: 0, packing: 0, shipped: 0, delivered: 0, cancelled: 0 }
     for (const order of orders) {
       if (pipeline[order.status] != null) pipeline[order.status] += 1
     }
     return {
       orders: orders.length,
       revenue: orders.reduce((sum, order) => sum + order.total, 0),
-      open: orders.filter((order) => order.status !== 'delivered').length,
+      open: orders.filter((order) => order.status !== 'delivered' && order.status !== 'cancelled').length,
       products: products.length,
       customers: customers.size,
       appointments: appointments.docs.filter((item) => item.data().status === 'booked').length,

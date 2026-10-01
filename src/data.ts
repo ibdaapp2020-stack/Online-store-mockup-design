@@ -1223,6 +1223,7 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   packing: 'נארזת',
   shipped: 'יצאה למשלוח',
   delivered: 'נמסרה',
+  cancelled: 'בוטלה',
 }
 
 export function productImage(product: string | { id: string; image?: string }) {

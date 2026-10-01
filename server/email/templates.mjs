@@ -43,6 +43,8 @@ const COPY = {
     shippedBody: 'ההזמנה יצאה למשלוח או מוכנה למסירה.',
     delivered: 'ההזמנה הושלמה',
     deliveredBody: 'ההזמנה נמסרה.',
+    cancelled: 'ההזמנה בוטלה',
+    cancelledBody: 'ההזמנה בוטלה. אם יש שאלה אפשר לפנות לחנות.',
     lowStock: 'מלאי נמוך',
     outOfStock: 'אזל מהמלאי',
   },
@@ -88,6 +90,8 @@ const COPY = {
     shippedBody: 'خرج الطلب للشحن أو أصبح جاهزاً للتسليم.',
     delivered: 'اكتمل الطلب',
     deliveredBody: 'تم تسليم الطلب.',
+    cancelled: 'تم إلغاء الطلب',
+    cancelledBody: 'تم إلغاء الطلب. يمكن التواصل مع المتجر لأي استفسار.',
     lowStock: 'مخزون منخفض',
     outOfStock: 'نفد المخزون',
   },
@@ -133,6 +137,8 @@ const COPY = {
     shippedBody: 'Your order was shipped or is ready for handover.',
     delivered: 'Order completed',
     deliveredBody: 'Your order was delivered.',
+    cancelled: 'Order cancelled',
+    cancelledBody: 'This order was cancelled. Contact the store if you have a question.',
     lowStock: 'Low stock',
     outOfStock: 'Out of stock',
   },
@@ -382,6 +388,7 @@ export function renderOrderStatus(order, lang) {
     packing: { title: copy.packing, intro: copy.packingBody },
     shipped: { title: copy.shipped, intro: copy.shippedBody },
     delivered: { title: copy.delivered, intro: copy.deliveredBody },
+    cancelled: { title: copy.cancelled, intro: copy.cancelledBody },
   }
   const selected = map[order.status]
   if (!selected) return null

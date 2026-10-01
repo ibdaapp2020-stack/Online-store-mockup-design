@@ -124,17 +124,31 @@ export async function sendOrderStatusChanged(order, lang) {
   const resolved = resolveLang(lang || order.customer?.language)
   const template = renderOrderStatus(order, resolved)
   if (!template) return { status: 'SKIPPED', errorCode: 'NO_CUSTOMER_STATUS' }
-  return sendCustomerEmail({
-    type: 'ORDER_STATUS_CUSTOMER',
+  const cancelled = order.status === 'cancelled'
+  const customer = await sendCustomerEmail({
+    type: cancelled ? 'ORDER_CANCELLED_CUSTOMER' : 'ORDER_STATUS_CUSTOMER',
     to: order.customer?.email,
     toName: order.customer?.name,
     subject: template.subject,
     html: template.html,
     text: template.text,
-    key: `ORDER_STATUS:${order.id}:${order.status}:CUSTOMER`,
+    key: cancelled ? `ORDER_CANCELLED:${order.id}:CUSTOMER` : `ORDER_STATUS:${order.id}:${order.status}:CUSTOMER`,
     entityType: 'order',
     entityId: order.id,
   })
+  if (cancelled && notificationFlags().orderCancelled) {
+    const admin = await sendAdminEmail({
+      type: 'ORDER_CANCELLED_ADMIN',
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+      key: `ORDER_CANCELLED:${order.id}:ADMIN`,
+      entityType: 'order',
+      entityId: order.id,
+    })
+    return { admin, customer }
+  }
+  return customer
 }
 
 export async function sendPaymentConfirmation(order, payment, lang) {

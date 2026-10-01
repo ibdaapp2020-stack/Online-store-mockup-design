@@ -1,5 +1,4 @@
-import type { ReactNode } from 'react'
-import { useEffect } from 'react'
+import { Component, useEffect, type ReactNode } from 'react'
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import { firebaseEnvError } from './lib/firebase/config'
 import { isPortal, portalUrl } from './lib/surface'
@@ -15,6 +14,31 @@ import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
 import { AdminDashboard, AdminDenied, AdminLogin, AdminMissing, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
 import { AdminCategories, AdminClub, AdminServices, AdminStaff } from './pages/admin-ops'
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
+  state = { error: '' }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error: error.message || 'האפליקציה נתקלה בשגיאה' }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="admin-login">
+          <section className="panel">
+            <h1>שגיאת מערכת</h1>
+            <p>{this.state.error}</p>
+            <button type="button" className="btn" onClick={() => window.location.reload()}>
+              טען מחדש
+            </button>
+          </section>
+        </main>
+      )
+    }
+    return this.props.children
+  }
+}
 
 function FirebaseGate({ children }: { children: ReactNode }) {
   const missing = firebaseEnvError()
@@ -88,10 +112,12 @@ function StoreRoutes() {
 export default function App() {
   const portal = isPortal()
   return (
-    <FirebaseGate>
-      <StoreProvider>
-        <BrowserRouter>{portal ? <PortalRoutes /> : <StoreRoutes />}</BrowserRouter>
-      </StoreProvider>
-    </FirebaseGate>
+    <AppErrorBoundary>
+      <FirebaseGate>
+        <StoreProvider>
+          <BrowserRouter>{portal ? <PortalRoutes /> : <StoreRoutes />}</BrowserRouter>
+        </StoreProvider>
+      </FirebaseGate>
+    </AppErrorBoundary>
   )
 }

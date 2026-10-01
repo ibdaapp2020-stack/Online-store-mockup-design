@@ -5,7 +5,7 @@ import { money } from '../pricing'
 import { useStore } from '../store'
 
 export function Layout() {
-  const { cartCount, totals, toast, settings } = useStore()
+  const { cartCount, totals, toast, settings, error } = useStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [query, setQuery] = useState('')
@@ -73,6 +73,7 @@ export function Layout() {
         </header>
       </div>
       <main className="container page">
+        {error ? <p className="store-error" role="alert">{error}</p> : null}
         <Outlet />
       </main>
       <footer className="footer">

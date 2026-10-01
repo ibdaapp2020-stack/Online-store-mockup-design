@@ -84,7 +84,7 @@ export type Customer = {
   language?: string
 }
 
-export type OrderStatus = 'received' | 'packing' | 'shipped' | 'delivered'
+export type OrderStatus = 'received' | 'packing' | 'shipped' | 'delivered' | 'cancelled'
 
 export type OrderItem = {
   productId: string

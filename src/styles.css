@@ -366,6 +366,7 @@ input, select {
 .portal-mark { font-size: 0.8rem; color: var(--muted); font-weight: 700; }
 .portal-top { display: none; }
 .admin-wait { padding: 2rem; }
+.store-error { background: #fff4f2; border: 1px solid #f0c7c0; border-radius: 12px; padding: 0.85rem 1rem; color: #7a2e24; }
 .admin-app { min-height: 100vh; display: grid; grid-template-columns: 240px 1fr; background: var(--bg); }
 .admin-logo { height: 64px; width: auto; display: block; border-radius: 12px; margin-bottom: 0.35rem; }
 .admin-nav-label { font-size: 0.75rem; color: var(--muted); margin-top: 0.7rem; }

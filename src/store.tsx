@@ -135,7 +135,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const unsubProducts = onSnapshot(collection(db(), 'products'), (snap) => {
       const rows = snap.docs.map((item) => productFrom(item.id, item.data())).filter((product) => product.active !== false)
       if (!rows.length) {
-        void refreshCatalogFromApi()
+        void refreshCatalogFromApi().catch((reason) => {
+          setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את החנות')
+          setReady(true)
+        })
         return
       }
       setProducts(rows)
@@ -146,7 +149,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setReady(true)
       setError('')
     }, () => {
-      void refreshCatalogFromApi()
+      void refreshCatalogFromApi().catch((reason) => {
+        setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את החנות')
+        setReady(true)
+      })
     })
     const unsubCategories = onSnapshot(collection(db(), 'categories'), (snap) => {
       setCategories(snap.docs.map((item) => categoryFrom(item.id, item.data())).sort((a, b) => a.sort - b.sort))
