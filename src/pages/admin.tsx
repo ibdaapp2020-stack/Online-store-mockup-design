@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import { currentUser, resetPassword, watchAuth } from '../lib/data/auth'
 import { preferStoredImage, readLiveCatalog, snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
+import { watchAdminOrders } from '../lib/data/admin-live'
 import { productImageErrorView, validateProductImageFile } from '../lib/image-errors'
 import { emailAdminFetch } from '../lib/notify'
 import { storeUrl } from '../lib/surface'
@@ -782,8 +783,21 @@ export function AdminProductForm() {
 
 export function AdminOrders() {
   const [orders, setOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   useEffect(() => {
-    void adminFetch<Order[]>('/api/admin/orders').then(setOrders)
+    return watchAdminOrders(
+      (rows) => {
+        setOrders(rows)
+        setLoadError('')
+        setLoading(false)
+      },
+      (reason) => {
+        console.error(reason)
+        setLoadError('לא הצלחנו לטעון את ההזמנות. נסו שוב.')
+        setLoading(false)
+      },
+    )
   }, [])
 
   async function setStatus(id: string, status: OrderStatus) {
@@ -798,6 +812,9 @@ export function AdminOrders() {
   return (
     <div>
       <h1>הזמנות</h1>
+      {loading ? <p className="muted">טוען הזמנות...</p> : null}
+      {loadError ? <p className="form-errors">{loadError}</p> : null}
+      {!loading && !loadError && orders.length === 0 ? <p>עדיין אין הזמנות.</p> : null}
       <div className="admin-table admin-orders">
         {orders.map((order) => (
           <article key={order.id}>

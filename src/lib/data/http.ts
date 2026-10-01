@@ -14,6 +14,7 @@ import {
   settingsFrom,
   uploadImage,
 } from './core'
+import { mergeCustomers } from './customers'
 import { productImagePath } from '../firebase/storage'
 import { findStoreOrder } from './orders'
 import { emailAdminFetch, notifyOrderStatus, notifyStockChange } from '../notify'
@@ -283,8 +284,8 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
   }
 
   if (url.pathname === '/api/admin/customers' && method === 'GET') {
-    const snap = await getDocs(collection(db(), 'customers'))
-    return snap.docs.map((item) => ({ id: item.id, ...item.data() })) as T
+    const [snap, orders] = await Promise.all([getDocs(collection(db(), 'customers')), listOrders()])
+    return mergeCustomers(snap.docs.map((item) => ({ id: item.id, ...item.data() })), orders) as T
   }
   if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'customers' && parts[4] === 'coupon' && method === 'POST') {
     const raw = await bodyOf(init)

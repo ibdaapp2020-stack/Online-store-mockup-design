@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
+import { watchAdminCustomers } from '../lib/data/admin-live'
 import { formatDate, money } from '../pricing'
 
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
@@ -566,14 +567,24 @@ export function AdminClub() {
   const [members, setMembers] = useState<Member[]>([])
   const [mail, setMail] = useState<Mail[]>([])
   const [percent, setPercent] = useState(10)
-
-  function loadMembers() {
-    void adminFetch<Member[]>('/api/admin/customers').then(setMembers).catch(() => setMembers([]))
-  }
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
-    loadMembers()
+    const stop = watchAdminCustomers(
+      (rows) => {
+        setMembers(rows as Member[])
+        setLoadError('')
+        setLoading(false)
+      },
+      (reason) => {
+        console.error(reason)
+        setLoadError('לא הצלחנו לטעון את הלקוחות. נסו שוב.')
+        setLoading(false)
+      },
+    )
     void adminFetch<Mail[]>('/api/admin/mail').then(setMail).catch(() => setMail([]))
+    return stop
   }, [])
 
   return (
@@ -587,7 +598,9 @@ export function AdminClub() {
       </div>
       <p className="muted">כל כרטיס מראה מי הלקוח, מה מגיע לו, קופון אישי, ושליחת הודעה לוואטסאפ. הנקודות והאחוז הקבוע נקבעים בהגדרות.</p>
       <div className="club-board">
-        {members.length === 0 ? <p>עדיין אין לקוחות רשומים.</p> : null}
+        {loading ? <p className="muted">טוען לקוחות...</p> : null}
+        {loadError ? <p className="form-errors">{loadError}</p> : null}
+        {!loading && !loadError && members.length === 0 ? <p>עדיין אין לקוחות רשומים.</p> : null}
         {members.map((member) => (
           <article key={member.id} className="club-card">
             <header>
@@ -611,7 +624,7 @@ export function AdminClub() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ percent }),
-                  }).then(loadMembers)
+                  })
                 }}
               >
                 הפקת קופון
