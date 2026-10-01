@@ -7,6 +7,7 @@ import { applyLiveCatalog } from './catalog-sync'
 import { firebaseEnvError } from './lib/firebase/config'
 import { categoryFrom, db, getSettings, listCategories, listProducts, productFrom, settingsFrom } from './lib/data/core'
 import { accountFetch } from './lib/data/http'
+import { httpError } from './lib/checkout-errors'
 import { findStoreOrder, placeStoreOrder } from './lib/data/orders'
 import { notifyOrderCreated } from './lib/notify'
 
@@ -57,7 +58,7 @@ type StoreValue = {
   removeFromCart: (key: string) => void
   applyCoupon: (code: string) => Promise<boolean>
   clearCoupon: () => void
-  placeOrder: (customer: Customer) => Promise<string | null>
+  placeOrder: (customer: Customer) => Promise<Order>
   findOrder: (id: string) => Promise<Order | null>
 }
 
@@ -289,28 +290,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   async function placeOrder(customer: Customer) {
-    if (detailed.length === 0) return null
-    try {
-      const data = await placeStoreOrder(
-        customer,
-        detailed.map((line) => ({ productId: line.productId, qty: line.qty, size: line.size, color: line.color, other: line.other })),
-        coupon,
-      )
-      setRecentOrders((prev) => [data.order, ...prev.filter((order) => order.id !== data.order.id)])
-      setCart([])
-      setCoupon(null)
-      setExtraPercent(0)
-      void notifyOrderCreated(data.order, data.stockAfter, customer.language || 'he')
-      return data.order.id
-    } catch (reason) {
-      notify(reason instanceof Error ? reason.message : 'לא ניתן לקלוט את ההזמנה')
-      return null
+    if (detailed.length === 0) throw httpError(400, 'חסרים פרטי הזמנה')
+    const items = detailed.map((line) => ({ productId: line.productId, qty: line.qty, size: line.size, color: line.color, other: line.other }))
+    let order: Order
+    let stockAfter: unknown[] = []
+    const response = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer, items, coupon }),
+    }).catch((reason) => {
+      throw Object.assign(reason instanceof Error ? reason : new Error('Failed to fetch'), { httpStatus: 0 })
+    })
+    if (response.status === 404) {
+      const data = await placeStoreOrder(customer, items, coupon)
+      order = data.order
+      stockAfter = data.stockAfter
+    } else if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      throw httpError(response.status, payload.error || 'לא ניתן לקלוט את ההזמנה')
+    } else {
+      order = (await response.json()) as Order
     }
+    setRecentOrders((prev) => [order, ...prev.filter((item) => item.id !== order.id)])
+    setCart([])
+    setCoupon(null)
+    setExtraPercent(0)
+    void notifyOrderCreated(order, stockAfter, customer.language || 'he')
+    return order
   }
 
   async function findOrder(id: string) {
     const local = recentOrders.find((order) => order.id.toLowerCase() === id.toLowerCase())
-    return (await findStoreOrder(id)) ?? local ?? null
+    try {
+      return (await findStoreOrder(id)) ?? local ?? null
+    } catch {
+      return local ?? null
+    }
   }
 
   const value: StoreValue = {

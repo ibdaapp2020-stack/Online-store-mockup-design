@@ -304,6 +304,40 @@ input, select {
 .invalid input { border-color: var(--danger); }
 .form-errors { color: var(--danger); font-weight: 700; }
 .form-errors p { margin: 0.2rem 0; }
+.field-error { display: block; margin-top: 0.35rem; color: var(--danger); font-size: 0.86rem; font-weight: 700; }
+.checkout-error-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(22, 58, 102, 0.28);
+  display: grid;
+  place-items: end center;
+  z-index: 40;
+  padding: 1rem;
+}
+.checkout-error-sheet {
+  width: min(440px, 100%);
+  background: white;
+  border-radius: 20px 20px 16px 16px;
+  padding: 1.4rem 1.2rem 1.2rem;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 0.7rem;
+}
+.checkout-error-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+}
+.checkout-error-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+@media (min-width: 720px) {
+  .checkout-error-scrim { place-items: center; }
+  .checkout-error-sheet { border-radius: 20px; }
+}
 .confirm { display: grid; justify-items: start; gap: 0.4rem; }
 .order-id { font-size: 2rem; font-weight: 800; margin: 0; letter-spacing: 0.03em; }
 .summary.wide { width: min(560px, 100%); }

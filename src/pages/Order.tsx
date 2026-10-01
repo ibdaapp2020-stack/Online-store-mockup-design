@@ -5,18 +5,17 @@ import { formatDate, money } from '../pricing'
 import { useStore } from '../store'
 import { variantLabel } from '../types'
 import type { Order } from '../types'
-import { findStoreOrder } from '../lib/data/orders'
 
 export function OrderPage() {
   const { id = '' } = useParams()
-  const { settings } = useStore()
+  const { settings, findOrder } = useStore()
   const [order, setOrder] = useState<Order | null>(null)
   const [missing, setMissing] = useState(false)
   useTitle(order ? `הזמנה ${order.id}` : 'הזמנה')
 
   useEffect(() => {
     let active = true
-    void findStoreOrder(id)
+    void findOrder(id)
       .then((found) => {
         if (!active) return
         if (!found) setMissing(true)
@@ -38,9 +37,10 @@ export function OrderPage() {
   return (
     <div className="confirm">
       <p className="eyebrow">{settings.paymentNote}</p>
-      <h1>ההזמנה נקלטה</h1>
+      <h1>ההזמנה התקבלה בהצלחה</h1>
       <p className="order-id">{order.id}</p>
       <p className="muted">{formatDate(order.createdAt)}</p>
+      <p>סטטוס תשלום: ממתין לסליקה · איסוף עצמי</p>
       <div className="panel summary wide">
         <h2>סיכום</h2>
         <ul className="mini-lines">
