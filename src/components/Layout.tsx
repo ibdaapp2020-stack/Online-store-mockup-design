@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PICKUP } from '../pickup'
 import { money } from '../pricing'
+import { AccessibilityWidget } from './AccessibilityWidget'
 import { useStore } from '../store'
 
 export function Layout() {
@@ -122,6 +123,7 @@ export function Layout() {
           {toast}
         </div>
       ) : null}
+      <AccessibilityWidget />
       <a className="whatsapp" href="https://wa.me/972505959596" target="_blank" rel="noreferrer" aria-label="וואטסאפ">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path

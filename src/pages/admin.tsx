@@ -6,6 +6,7 @@ import { adminFetch } from '../lib/data/http'
 import { watchAdminOrders } from '../lib/data/admin-live'
 import { productImageErrorView, validateProductImageFile } from '../lib/image-errors'
 import { emailAdminFetch } from '../lib/notify'
+import { AccessibilityWidget } from '../components/AccessibilityWidget'
 import { storeUrl } from '../lib/surface'
 import { STATUS_LABEL } from '../data'
 import { money } from '../pricing'
@@ -96,6 +97,7 @@ export function AdminLogin() {
         </button>
         <a href={storeUrl('/')}>חזרה לחנות</a>
       </form>
+      <AccessibilityWidget />
     </main>
   )
 }
@@ -197,6 +199,7 @@ export function AdminShell() {
           <Outlet />
         </AdminBoundary>
       </main>
+      <AccessibilityWidget />
     </div>
   )
 }
