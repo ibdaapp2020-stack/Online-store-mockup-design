@@ -1,253 +1,155 @@
-import { Link, useNavigate } from 'react-router-dom'
-import { SetupCard } from '../components/SetupCard'
-import { ProductCard } from '../components/ProductCard'
 import { useEffect, useState } from 'react'
-import { photos } from '../catalog'
-import { banners, blueprintFor, setups } from '../data'
-import { money, quote, setupRateLabel } from '../pricing'
+import { Link } from 'react-router-dom'
+import { ProductCard } from '../components/ProductCard'
+import { SkeletonGrid, useTitle } from '../components/ui'
+import { productImage } from '../data'
 import { useStore } from '../store'
 
-export function Home() {
-  const { audience, products, applySetup, pricesOpen } = useStore()
-  const navigate = useNavigate()
-  if (!audience) return null
+const COVER: Record<string, string> = {
+  'first-aid': 'kit',
+  monitors: 'thermo',
+  vitamins: 'vd',
+  hygiene: 'gel',
+  ortho: 'knee-sleeve',
+  home: 'walker-std',
+}
 
-  const heroSetup = audience === 'business' ? 'desk' : 'pocket'
-  const heroQty = audience === 'business' ? 5 : 1
-  const heroLines = blueprintFor(heroSetup, audience).map((id) => ({ productId: id, qty: heroQty }))
-  const heroQuote = quote(products, heroLines, audience, 'standard')
-  const picks = products
-    .filter((product) => product.active)
-    .slice()
-    .sort((a, b) => {
-      const score = (fit: typeof a.fit) => (fit === audience ? 2 : fit === 'all' ? 1 : 0)
-      const diff = score(b.fit) - score(a.fit)
-      return diff !== 0 ? diff : b.reviews - a.reviews
-    })
-    .slice(0, 8)
-
-  const steps =
-    audience === 'business'
-      ? [
-          ['01', 'בוחרים ציוד', 'אותן קטגוריות, מחיר לפני מע״מ.'],
-          ['02', 'קובעים כמות', 'חמש יחידות וכבר נכנסת הנחת כמות.'],
-          ['03', 'משכפלים עמדה', 'מחשב, מקלדת, עכבר ומסך בכמות אחת.'],
-          ['04', 'מזמינים או מבקשים הצעה', 'הזמנה מיידית או הצעת מחיר לחשבונית.'],
-        ]
-      : [
-          ['01', 'בוחרים קטגוריה', 'סלולר, מחשבים, גיימינג או אביזרים.'],
-          ['02', 'מוסיפים לסל', 'כמו בכל חנות שאתם כבר מכירים.'],
-          ['03', 'משלימים את המד', 'ארבעה חלקים נועלים הנחה ומשלוח.'],
-          ['04', 'משלמים כרגיל', 'אשראי, ביט, או עד 12 תשלומים.'],
-        ]
-
-  const tiles: { title: string; to: string; image: string; featured?: boolean }[] = [
-    { title: 'חנות Apple', to: '/c/mobile?sub=iphone', image: photos.iphone18, featured: true },
-    { title: 'מק', to: '/c/computer?sub=mac', image: photos.macbookAir },
-    { title: 'מחשבים', to: '/c/computer', image: photos.macbookPro },
-    { title: 'גיימינג', to: '/c/gaming', image: photos.ps5 },
-    { title: 'סמארטפונים', to: '/c/mobile', image: photos.iphone17 },
-    { title: 'טאבלטים', to: '/c/computer?sub=tablet', image: photos.ipad },
-    { title: 'אביזרים', to: '/c/accessories', image: photos.airpods },
-    { title: 'שעונים', to: '/c/accessories?sub=wear', image: photos.watch },
-    { title: 'מעבדה עד הבית', to: '/lab', image: photos.iphone16 },
-    ...(audience === 'business' ? [{ title: 'ציוד מחלקות', to: '/c/enterprise', image: photos.macbookPro }] : []),
+export function HomePage() {
+  useTitle('בית')
+  const { products, categories, ready } = useStore()
+  const [more, setMore] = useState(false)
+  const newest = products.slice(0, 4)
+  const best = [...products.filter((product) => product.badge === 'popular')].sort((a, b) => b.reviews - a.reviews).slice(0, 4)
+  const recommended = [...products]
+    .filter((product) => !best.some((item) => item.id === product.id))
+    .sort((a, b) => b.rating - a.rating || b.reviews - a.reviews)
+    .slice(0, 4)
+  const shown = more ? categories : categories.slice(0, 5)
+  const kit = products.find((product) => product.id === 'kit')
+  const [slide, setSlide] = useState(0)
+  const slides = [
+    { id: 'new', to: '/catalog?badge=new' },
+    { id: 'kit', to: '/p/kit' },
   ]
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setSlide((current) => (current + 1) % slides.length), 5000)
+    return () => window.clearInterval(timer)
+  }, [slides.length])
+
+  function cover(id: string) {
+    const product = products.find((item) => item.id === COVER[id]) || products.find((item) => item.category === id)
+    if (product) return productImage(product)
+    const file = COVER[id]
+    return file ? `/products/${file}.jpg` : '/logo.jpg'
+  }
+
   return (
-    <>
-      <section className="wrap mosaic" aria-label="קטגוריות">
-        {tiles.map((tile) => (
-          <Link key={tile.title} to={tile.to} className={tile.featured ? 'featured' : ''}>
-            {tile.featured ? (
-              <>
-                <img src={tile.image} alt="" />
-                <strong>{tile.title}</strong>
-              </>
-            ) : (
-              <>
-                <strong>{tile.title}</strong>
-                <img src={tile.image} alt="" />
-                <span>לקטגוריה</span>
-              </>
-            )}
+    <div>
+      <section className="hero-slider" aria-label="כניסה">
+        <div className="hero-track" style={{ transform: `translateX(${slide * 100}%)` }}>
+          <Link className="hero-slide" to={slides[0].to}>
+            <div>
+              <p className="hero-kicker">PRO PHARM</p>
+              <h2>מוצרים חדשים</h2>
+              <p>תמיכות, הליכה וציוד ביתי חדש במדף.</p>
+              <span className="hero-cta">לכל המוצרים</span>
+            </div>
+            <img src="/products/walker-std.jpg" alt="" />
           </Link>
-        ))}
-      </section>
-
-      <section className="hero-band">
-        <div className="wrap hero">
-          <div>
-            <p className="kicker">{audience === 'business' ? 'מחירון מחלקה' : 'מד ההשלמה'}</p>
-            <h1>{audience === 'business' ? 'אותה חנות. מחירון של מחלקה.' : 'החנות שקונים בה כמו תמיד.'}</h1>
-            <p className="lead">
-              {audience === 'business'
-                ? 'מחיר לפני מע״מ, הנחת כמות, ושכפול עמדה לכל העובדים בלחיצה. בלי קטלוג אחר ובלי ללמוד אתר חדש.'
-                : 'קטגוריה, מוצר, סל, תשלום. מד ההשלמה יושב על הסל, וכשהוא מלא ננעלים 8% ומשלוח חינם.'}
-            </p>
-            <div className="hero-actions">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!pricesOpen && audience === 'business'}
-                onClick={() => {
-                  applySetup(heroSetup, heroQty)
-                  navigate('/cart')
-                }}
-              >
-                {audience === 'business' ? 'הכן 5 עמדות עבודה' : 'התחל מהכיס המושלם'}
-              </button>
-              <Link className="btn btn-ghost" to="/c/all">
-                לכל המוצרים
-              </Link>
+          <Link className="hero-slide hero-sale" to={slides[1].to}>
+            <div>
+              <p className="hero-kicker">מבצע</p>
+              <h2>ערכת עזרה ראשונה</h2>
+              <p>במחיר מוזל לזמן מוגבל.</p>
+              <span className="hero-cta">לערכה</span>
             </div>
-          </div>
-          <div className="receipt">
-            <span className="seal">{setupRateLabel(audience)} נעול</span>
-            <p className="eyebrow">{audience === 'business' ? '5 עמדות עבודה' : 'הכיס המושלם'}</p>
-            <div className="rows">
-              {pricesOpen ? (
-                <>
-                  {heroQuote.lines.map((line) => (
-                    <div className="row" key={line.product.id}>
-                      <span>
-                        {line.product.name}
-                        {line.qty > 1 ? ` × ${line.qty}` : ''}
-                      </span>
-                      <span>{money(line.list * line.qty)}</span>
-                    </div>
-                  ))}
-                  {heroQuote.volumeSaved > 0 && (
-                    <div className="row">
-                      <span>הנחת כמות</span>
-                      <span className="saving">−{money(heroQuote.volumeSaved)}</span>
-                    </div>
-                  )}
-                  {heroQuote.discount > 0 && (
-                    <div className="row">
-                      <span>הנחת השלמה</span>
-                      <span className="saving">−{money(heroQuote.discount)}</span>
-                    </div>
-                  )}
-                  <div className="row">
-                    <span>משלוח</span>
-                    <span>{heroQuote.shipping === 0 ? 'חינם' : money(heroQuote.shipping)}</span>
-                  </div>
-                  {audience === 'business' && (
-                    <div className="row">
-                      <span>מע״מ 17%</span>
-                      <span>{money(heroQuote.vat)}</span>
-                    </div>
-                  )}
-                  <div className="row total">
-                    <span>לתשלום</span>
-                    <span>{money(heroQuote.total)}</span>
-                  </div>
-                </>
-              ) : (
-                heroQuote.lines.map((line) => (
-                  <div className="row" key={line.product.id}>
-                    <span>{line.product.name}</span>
-                  </div>
-                ))
-              )}
+            <div className="hero-deal">
+              <img src={kit ? productImage(kit) : '/products/kit.png'} alt="" />
+              <span className="deal-now">{kit?.price ?? 89} ₪</span>
+              <span className="deal-was">{kit?.compareAt ?? 119} ₪</span>
             </div>
-            <Link to="/cart" className="text-link" onClick={() => applySetup(heroSetup, heroQty)}>
-              ככה זה נראה בסל
-            </Link>
-          </div>
+          </Link>
         </div>
-      </section>
-
-      <Banner />
-
-      <section className="wrap block" id="setups">
-        <div className="sec-head">
-          <h2>{audience === 'business' ? 'שכפול עמדה' : 'מד ההשלמה'}</h2>
-          <p>
-            {audience === 'business'
-              ? 'בוחרים כמה עמדות, והחנות שמה את אותה כמות על כל חלק בערכה. הנחת כמות נכנסת לבד, וערכה מלאה מוסיפה עוד 4%.'
-              : 'כל סטאפ בנוי מארבעה חלקים. כשכולם בסל, ננעלת הנחה של 8% על הערכה ומשלוח חינם. אפשר גם להשלים חלק-חלק.'}
-          </p>
-        </div>
-        <div className="setup-grid">
-          {setups.map((setup) => (
-            <SetupCard key={setup.id} setup={setup} />
+        <div className="hero-dots">
+          {slides.map((item, index) => (
+            <button key={item.id} type="button" className={slide === index ? 'on' : ''} aria-label={`שקף ${index + 1}`} onClick={() => setSlide(index)} />
           ))}
         </div>
       </section>
 
-      <section className="wrap block">
-        <div className="sec-head">
-          <h2>{audience === 'business' ? 'ציוד שעסקים לוקחים קודם' : 'מה שקונים עכשיו'}</h2>
-          <Link to="/c/all">לכל הקטלוג</Link>
+      <section className="home-cats">
+        <div className="section-head">
+          <h2>קטגוריות</h2>
         </div>
-        <div className="grid">
-          {picks.map((product) => (
+        <div className="cat-showcase">
+          {shown.map((category) => (
+            <Link key={category.id} className="cat-tile" to={`/catalog?cat=${category.id}`}>
+              <img src={cover(category.id)} alt="" />
+              <strong>{category.name}</strong>
+            </Link>
+          ))}
+          {more ? null : (
+            <button type="button" className="cat-tile cat-more" onClick={() => setMore(true)}>
+              עוד
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <div className="section-head">
+          <h2>נוספו עכשיו</h2>
+          <Link to="/catalog">לקטלוג</Link>
+        </div>
+        {ready ? (
+          <div className="product-grid">
+            {newest.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : (
+          <SkeletonGrid />
+        )}
+      </section>
+
+      <section>
+        <div className="section-head">
+          <h2>הכי נמכר</h2>
+          <Link to="/catalog?badge=popular">לכל הנמכרים</Link>
+        </div>
+        {ready ? (
+          <div className="product-grid">
+            {best.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : (
+          <SkeletonGrid />
+        )}
+      </section>
+
+      <Link className="club-banner" to="/account">
+        <img src="/products/sleep-pillow.jpg" alt="" />
+        <div>
+          <p className="hero-kicker">מועדון לקוחות</p>
+          <h2>10% לקנייה הבאה</h2>
+          <p>נרשמים לאזור האישי ומקבלים את ההטבה בחשבון.</p>
+          <span className="hero-cta">להרשמה</span>
+        </div>
+      </Link>
+
+      <section>
+        <div className="section-head">
+          <h2>מוצרים מומלצים</h2>
+          <Link to="/catalog?sort=rating">לפי דירוג</Link>
+        </div>
+        <div className="product-grid">
+          {recommended.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>
       </section>
-
-      <section className="wrap block">
-        <div className="sec-head">
-          <h2>ארבעה צעדים, בלי הפתעות</h2>
-        </div>
-        <div className="steps">
-          {steps.map(([index, title, text]) => (
-            <article key={index} className="step">
-              <b>{index}</b>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-        <div className="trust">
-          {[
-            ['משלוח', 'עד הבית, אקספרס או איסוף'],
-            ['אחריות', 'עד שנתיים על מכשירים נבחרים'],
-            ['החזרה', '14 יום על אביזרים'],
-            ['תשלום', audience === 'business' ? 'שוטף +30 או אשראי' : 'אשראי, ביט או תשלומים'],
-          ].map(([title, text]) => (
-            <article key={title}>
-              <strong>{title}</strong>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-    </>
-  )
-}
-
-function Banner() {
-  const [index, setIndex] = useState(0)
-  useEffect(() => {
-    const timer = window.setInterval(() => setIndex((current) => (current + 1) % banners.length), 5000)
-    return () => window.clearInterval(timer)
-  }, [])
-  const slide = banners[index]
-
-  return (
-    <section className="banner" aria-roledescription="carousel">
-      {banners.map((item, itemIndex) => (
-        <img key={item.to} src={item.image} alt="" className={itemIndex === index ? 'on' : ''} />
-      ))}
-      <div className="wrap banner-copy">
-        <p className="kicker">{slide.kicker}</p>
-        <h2>{slide.title}</h2>
-        <p>{slide.text}</p>
-        <div className="hero-actions">
-          <Link className="btn btn-primary" to={slide.to}>
-            למוצר
-          </Link>
-        </div>
-        <div className="dots">
-          {banners.map((item, itemIndex) => (
-            <button key={item.to} type="button" className={itemIndex === index ? 'on' : ''} aria-label={item.title} onClick={() => setIndex(itemIndex)} />
-          ))}
-        </div>
-      </div>
-    </section>
+    </div>
   )
 }

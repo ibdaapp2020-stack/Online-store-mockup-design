@@ -1,81 +1,108 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Summary } from '../components/Summary'
-import { Empty, Qty } from '../components/ui'
-import { money, quote } from '../pricing'
-import { useStore } from '../store'
+import { productImage } from '../data'
+import { EmptyState, QtyControl, useTitle } from '../components/ui'
+import { money } from '../pricing'
+import { cartKey, useStore } from '../store'
+import { variantLabel, optionStock } from '../types'
 
 export function CartPage() {
-  const { audience, products, cart, setQty, removeFromCart, setSetupQty, pricesOpen } = useStore()
-  if (!audience) return null
-  const priced = quote(products, cart, audience, 'standard')
-  const locked = audience === 'business' && !pricesOpen
+  useTitle('סל')
+  const { cart, totals, coupon, settings, setQty, removeFromCart, applyCoupon, clearCoupon } = useStore()
+  const [code, setCode] = useState('')
+  const [couponNote, setCouponNote] = useState('')
+  const remaining = Math.max(0, settings.freeFrom - totals.subtotal)
 
-  if (priced.lines.length === 0) {
+  if (cart.length === 0) {
     return (
-      <div className="wrap">
-        <Empty title="הסל ריק" text="אפשר להתחיל מקטגוריה, או להוסיף סטאפ שלם בלחיצה." to="/shop" action="לחנות" />
-      </div>
+      <EmptyState
+        title="הסל ריק"
+        text="עדיין אין כאן מוצרים. הקטלוג כולו מדומה ואפשר להוסיף ממנו פריטים."
+        action={
+          <Link className="btn" to="/catalog">
+            לקטלוג
+          </Link>
+        }
+      />
     )
   }
 
-  const complete = priced.progress.filter((item) => item.complete && item.filledRoles.length > 0)
-
   return (
-    <div className="wrap cart-layout">
-      <div>
-        <h1>הסל</h1>
-        <p className="muted">{priced.lines.length} פריטים במסלול הקנייה הרגיל</p>
-        <div className="lines">
-          {priced.lines.map((line) => (
-            <article key={line.product.id} className="line">
-              <div>
-                <Link to={`/p/${line.product.id}`}>
-                  <strong>{line.product.name}</strong>
-                </Link>
-                <p className="muted">
-                  {pricesOpen ? `${money(line.unit)} ליחידה` : ''}
-                  {line.storage ? ` · ${line.storage}` : ''}
-                  {line.color ? ` · ${line.color}` : ''}
-                  {pricesOpen && line.volume > 0 ? ` · הנחת כמות ${Math.round(line.volume * 100)}%` : ''}
-                </p>
+    <div>
+      <h1>סל הקניות</h1>
+      <div className="cart-layout">
+        <div className="panel lines">
+          {cart.map((line) => (
+            <article key={cartKey(line.productId, line.size, line.color, line.other)} className="cart-line">
+              <div className="line-swatch">
+                <img src={productImage(line.product)} alt="" />
               </div>
-              <Qty
-                value={line.qty}
-                max={Math.max(1, line.product.stock)}
-                onChange={(value) => setQty(line.key, value)}
-              />
-              {pricesOpen && <strong>{money(line.line)}</strong>}
-              <button type="button" className="text-btn" onClick={() => removeFromCart(line.key)}>
-                הסרה
-              </button>
+              <div>
+                <Link to={`/p/${line.productId}`}>{line.product.name}</Link>
+                {variantLabel(line) ? <p className="muted">{variantLabel(line)}</p> : null}
+                <p className="muted">{money(line.product.price)} ליחידה</p>
+                <QtyControl qty={line.qty} max={optionStock(line.product, line)} onChange={(qty) => setQty(cartKey(line.productId, line.size, line.color, line.other), qty)} />
+                <button type="button" className="text-btn" onClick={() => removeFromCart(cartKey(line.productId, line.size, line.color, line.other))}>
+                  הסרה
+                </button>
+              </div>
+              <strong className="line-total">{money(line.product.price * line.qty)}</strong>
             </article>
           ))}
         </div>
-        {audience === 'business' &&
-          complete.map((item) => {
-            const members = priced.lines.filter((line) => line.product.setupId === item.setup.id)
-            const current = members[0]?.qty ?? 1
-            const max = Math.min(...members.map((line) => line.product.stock))
-            return (
-              <div className="stamp" key={item.setup.id}>
-                <div>
-                  <strong>שכפול {item.setup.name}</strong>
-                  <p>קובע את אותה כמות לכל החלקים בערכה.</p>
-                </div>
-                <Qty value={current} max={Math.max(1, max)} onChange={(value) => setSetupQty(item.setup.id, value)} />
-              </div>
-            )
-          })}
-        <div className="hero-actions">
-          <Link className="btn btn-primary" to={locked ? '/b2b' : '/checkout'}>
-            {locked ? 'לפורטל העסקי' : 'להמשך תשלום'}
+        <aside className="panel summary">
+          <h2>סיכום</h2>
+          <div className="summary-row">
+            <span>ביניים</span>
+            <span>{money(totals.subtotal)}</span>
+          </div>
+          <div className="summary-row">
+            <span>הנחה</span>
+            <span>{totals.discount ? `−${money(totals.discount)}` : money(0)}</span>
+          </div>
+          <div className="summary-row">
+            <span>משלוח מדומה</span>
+            <span>{totals.shipping === 0 ? 'חינם' : money(totals.shipping)}</span>
+          </div>
+          <p className="muted">
+            {remaining > 0 ? `עוד ${money(remaining)} למשלוח חינם.` : 'הגעתם למשלוח חינם.'} החינם מחושב לפני הנחה, מעל {money(settings.freeFrom)}.
+          </p>
+          {coupon ? (
+            <p className="coupon-on">
+              קופון {coupon} פעיל
+              <button type="button" className="text-btn" onClick={clearCoupon}>
+                הסרת קופון
+              </button>
+            </p>
+          ) : (
+            <form
+              className="coupon-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void applyCoupon(code).then((ok) => {
+                  setCouponNote(ok ? 'ההנחה נוספה לסיכום.' : 'הקוד לא הופעל.')
+                })
+              }}
+            >
+              <label>
+                קופון דמו
+                <input value={code} onChange={(event) => setCode(event.target.value)} placeholder={settings.couponCode} />
+              </label>
+              <button type="submit" className="btn secondary">
+                הפעלת קופון
+              </button>
+            </form>
+          )}
+          {couponNote ? <p className="muted">{couponNote}</p> : null}
+          <div className="summary-row total">
+            <span>לתשלום</span>
+            <span>{money(totals.total)}</span>
+          </div>
+          <Link className="btn full" to="/checkout">
+            להמשך לתשלום דמו
           </Link>
-          <Link className="btn btn-ghost" to="/c/all">
-            להמשיך בקניות
-          </Link>
-        </div>
+        </aside>
       </div>
-      {!locked && <Summary ship="standard" />}
     </div>
   )
 }

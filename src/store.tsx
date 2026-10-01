@@ -1,62 +1,64 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react'
-import { blueprintFor, clubGifts, DATA_VERSION, SEED } from './data'
-import { lineKey, quote } from './pricing'
-import type { Audience, BusinessAccount, CartLine, ClubProfile, Order, OrderStatus, PlaceInput, Product, RepairRequest } from './types'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { collection, doc, onSnapshot } from 'firebase/firestore'
+import { quote, type Quote } from './pricing'
+import type { CartLine, Category, Customer, Order, Product, ShopSettings } from './types'
+import { optionStock } from './types'
+import { applyLiveCatalog } from './catalog-sync'
+import { firebaseEnvError } from './lib/firebase/config'
+import { categoryFrom, db, getSettings, listCategories, listProducts, productFrom, settingsFrom } from './lib/data/core'
+import { accountFetch } from './lib/data/http'
+import { findStoreOrder, placeStoreOrder } from './lib/data/orders'
+import { notifyOrderCreated } from './lib/notify'
 
-const KEYS = {
-  version: 'desigma-version',
-  products: 'desigma-products',
-  cart: 'desigma-cart',
-  orders: 'desigma-orders',
-  audience: 'desigma-audience',
-  admin: 'desigma-admin',
-  accounts: 'desigma-accounts',
-  business: 'desigma-business',
-  club: 'desigma-club',
-  repairs: 'desigma-repairs',
+
+const CART_KEY = 'medica-cart'
+
+export function cartKey(productId: string, size?: string, color?: string, other?: string) {
+  return `${productId}::${size ?? ''}::${color ?? ''}::${other ?? ''}`
+}
+const COUPON_KEY = 'medica-coupon'
+const RECENT_KEY = 'medica-recent-orders'
+
+const FALLBACK_SETTINGS: ShopSettings = {
+  storeName: 'PRO PHARM',
+  tagline: 'ORTHO & MOBILITY',
+  banner: '',
+  showBanner: false,
+  disclaimer: 'האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.',
+  shippingFee: 29,
+  freeFrom: 199,
+  couponCode: 'DEMO10',
+  couponPercent: 10,
+  paymentNote: 'ההזמנה נשמרת בחנות. פרטי הכרטיס לא נשמרים.',
+  loyaltyMode: 'points',
+  pointsPer100: 10,
+  clubPercent: 5,
+  notifyEmail: 'propharm2026@gmail.com',
+  smtpUser: 'propharm2026@gmail.com',
 }
 
-export const ADMIN_PASSWORD = 'desigma'
+export type CartDetail = CartLine & { product: Product }
 
 type StoreValue = {
-  audience: Audience | null
-  setAudience: (audience: Audience) => void
+  ready: boolean
+  error: string
   products: Product[]
-  cart: CartLine[]
-  orders: Order[]
+  categories: Category[]
+  settings: ShopSettings
+  cart: CartDetail[]
+  recentOrders: Order[]
+  coupon: string | null
   toast: string
-  admin: boolean
-  addToCart: (id: string, qty?: number, options?: { color?: string; storage?: string; priceAdd?: number }) => void
+  totals: Quote
+  cartCount: number
+  refreshCatalog: () => Promise<void>
+  addToCart: (productId: string, qty?: number, options?: { size?: string; color?: string; other?: string }) => void
   setQty: (key: string, qty: number) => void
   removeFromCart: (key: string) => void
-  applySetup: (setupId: string, qty: number) => void
-  setSetupQty: (setupId: string, qty: number) => void
-  placeOrder: (input: PlaceInput) => string | null
-  updateProduct: (id: string, patch: Partial<Product>) => void
-  addProduct: (product: Product) => void
-  deleteProduct: (id: string) => void
-  resetCatalog: () => void
-  setOrderStatus: (id: string, status: OrderStatus) => void
-  login: (password: string) => boolean
-  logout: () => void
-  accounts: BusinessAccount[]
-  businessUser: BusinessAccount | null
-  pricesOpen: boolean
-  registerBusiness: (input: Omit<BusinessAccount, 'username' | 'password'>) => { ok: boolean; message: string; account?: BusinessAccount }
-  loginBusiness: (username: string, password: string) => boolean
-  logoutBusiness: () => void
-  club: ClubProfile | null
-  joinClub: (input: { name: string; phone: string; email: string }) => boolean
-  claimGift: (id: string) => void
-  repairs: RepairRequest[]
-  submitRepair: (input: Omit<RepairRequest, 'id' | 'createdAt'>) => string
+  applyCoupon: (code: string) => Promise<boolean>
+  clearCoupon: () => void
+  placeOrder: (customer: Customer) => Promise<string | null>
+  findOrder: (id: string) => Promise<Order | null>
 }
 
 const StoreContext = createContext<StoreValue | null>(null)
@@ -70,373 +72,262 @@ function readJson<T>(key: string): T | null {
   }
 }
 
-function freshVisit() {
-  try {
-    return localStorage.getItem(KEYS.version) !== DATA_VERSION
-  } catch {
-    return true
-  }
-}
-
-function isProduct(value: unknown): value is Product {
-  if (!value || typeof value !== 'object') return false
-  const product = value as Product
-  return typeof product.id === 'string' && typeof product.name === 'string' && typeof product.price === 'number'
-}
-
-function loadProducts(): Product[] {
-  if (freshVisit()) return SEED.map((product) => ({ ...product, specs: [...product.specs] }))
-  const parsed = readJson<unknown>(KEYS.products)
-  if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isProduct)) {
-    return SEED.map((product) => ({ ...product, specs: [...product.specs] }))
-  }
-  return parsed
-}
-
-function loadCart(): CartLine[] {
-  if (freshVisit()) return []
-  const parsed = readJson<CartLine[]>(KEYS.cart)
-  if (!Array.isArray(parsed)) return []
-  return parsed.filter((line) => line && typeof line.productId === 'string' && line.qty > 0)
-}
-
-function loadOrders(): Order[] {
-  if (freshVisit()) return []
-  const parsed = readJson<Order[]>(KEYS.orders)
-  return Array.isArray(parsed) ? parsed : []
-}
-
-function loadAudience(): Audience | null {
-  try {
-    const value = localStorage.getItem(KEYS.audience)
-    return value === 'private' || value === 'business' ? value : null
-  } catch {
-    return null
-  }
-}
-
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [audience, setAudienceState] = useState<Audience | null>(loadAudience)
-  const [products, setProducts] = useState<Product[]>(loadProducts)
-  const [cart, setCart] = useState<CartLine[]>(loadCart)
-  const [orders, setOrders] = useState<Order[]>(loadOrders)
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState('')
+  const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [settings, setSettings] = useState<ShopSettings>(FALLBACK_SETTINGS)
+  const [cart, setCart] = useState<CartLine[]>([])
+  const [recentOrders, setRecentOrders] = useState<Order[]>(() => readJson<Order[]>(RECENT_KEY) ?? [])
+  const [coupon, setCoupon] = useState<string | null>(null)
+  const [extraPercent, setExtraPercent] = useState(0)
   const [toast, setToast] = useState('')
-  const [admin, setAdmin] = useState(() => {
-    try {
-      return sessionStorage.getItem(KEYS.admin) === '1'
-    } catch {
-      return false
+  const toastTimer = useRef<number | null>(null)
+
+  function applyCatalog(nextProducts: Product[], nextCategories: Category[], nextSettings: ShopSettings) {
+    const live = applyLiveCatalog(nextProducts, nextCategories, nextSettings)
+    setProducts(live.products)
+    setCategories(live.categories)
+    setSettings(live.settings)
+    setCart((current) => {
+      const stored = current.length ? current : readJson<CartLine[]>(CART_KEY) ?? []
+      return stored.filter((line) => live.products.some((product) => product.id === line.productId && product.stock > 0))
+    })
+    const savedCoupon = localStorage.getItem(COUPON_KEY)
+    const savedPercent = Number(localStorage.getItem('medica-coupon-percent') || 0)
+    if (savedCoupon && (savedCoupon.toUpperCase() === live.settings.couponCode.toUpperCase() || savedPercent > 0)) {
+      setCoupon(savedCoupon)
+      setExtraPercent(savedCoupon.toUpperCase() === live.settings.couponCode.toUpperCase() ? 0 : savedPercent)
     }
-  })
-  const [accounts, setAccounts] = useState<BusinessAccount[]>(() => {
-    if (freshVisit()) return []
-    return readJson<BusinessAccount[]>(KEYS.accounts) ?? []
-  })
-  const [club, setClub] = useState<ClubProfile | null>(() => {
-    if (freshVisit()) return null
-    return readJson<ClubProfile>(KEYS.club)
-  })
-  const [repairs, setRepairs] = useState<RepairRequest[]>(() => {
-    if (freshVisit()) return []
-    return readJson<RepairRequest[]>(KEYS.repairs) ?? []
-  })
-  const [businessUser, setBusinessUser] = useState<BusinessAccount | null>(() => {
+  }
+
+  async function refreshCatalogFromApi() {
+    const response = await fetch('/api/catalog')
+    if (!response.ok) throw new Error('לא ניתן לטעון את החנות')
+    const data = (await response.json()) as { products: Product[]; categories: Category[]; settings: ShopSettings }
+    applyCatalog(data.products, data.categories, data.settings)
+    setReady(true)
+  }
+
+  async function refreshCatalog() {
+    const missing = firebaseEnvError()
+    if (missing) throw new Error(`FIREBASE_CONFIG_MISSING:\n${missing.missing.join('\n')}`)
     try {
-      if (freshVisit()) return null
-      const username = sessionStorage.getItem(KEYS.business)
-      if (!username) return null
-      const list = readJson<BusinessAccount[]>(KEYS.accounts) ?? []
-      return list.find((account) => account.username === username) ?? null
+      const [nextProducts, nextCategories, nextSettings] = await Promise.all([listProducts(true), listCategories(), getSettings()])
+      if (nextProducts.length) {
+        applyCatalog(nextProducts, nextCategories, nextSettings)
+        return
+      }
     } catch {
-      return null
+      /* Firestore empty or denied — use SQLite API until migration lands */
     }
-  })
+    await refreshCatalogFromApi()
+  }
 
   useEffect(() => {
-    localStorage.setItem(KEYS.version, DATA_VERSION)
+    const missing = firebaseEnvError()
+    if (missing) {
+      setError(`FIREBASE_CONFIG_MISSING:\n${missing.missing.join('\n')}`)
+      setReady(true)
+      return
+    }
+    const unsubProducts = onSnapshot(collection(db(), 'products'), (snap) => {
+      const rows = snap.docs.map((item) => productFrom(item.id, item.data())).filter((product) => product.active !== false)
+      if (!rows.length) {
+        void refreshCatalogFromApi()
+        return
+      }
+      setProducts(rows)
+      setCart((current) => {
+        const stored = current.length ? current : readJson<CartLine[]>(CART_KEY) ?? []
+        return stored.filter((line) => rows.some((product) => product.id === line.productId && product.stock > 0))
+      })
+      setReady(true)
+      setError('')
+    }, () => {
+      void refreshCatalogFromApi()
+    })
+    const unsubCategories = onSnapshot(collection(db(), 'categories'), (snap) => {
+      setCategories(snap.docs.map((item) => categoryFrom(item.id, item.data())).sort((a, b) => a.sort - b.sort))
+    })
+    const unsubSettings = onSnapshot(doc(db(), 'settings', 'store'), (snap) => {
+      setSettings(settingsFrom(snap.data()))
+    })
+    return () => {
+      unsubProducts()
+      unsubCategories()
+      unsubSettings()
+    }
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(KEYS.products, JSON.stringify(products))
-  }, [products])
+    function onCatalog() {
+      void refreshCatalog()
+    }
+    window.addEventListener('medica-catalog', onCatalog)
+    window.addEventListener('storage', onCatalog)
+    return () => {
+      window.removeEventListener('medica-catalog', onCatalog)
+      window.removeEventListener('storage', onCatalog)
+    }
+  }, [])
 
   useEffect(() => {
-    localStorage.setItem(KEYS.cart, JSON.stringify(cart))
-  }, [cart])
+    if (ready) localStorage.setItem(CART_KEY, JSON.stringify(cart))
+  }, [cart, ready])
 
   useEffect(() => {
-    localStorage.setItem(KEYS.orders, JSON.stringify(orders))
-  }, [orders])
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recentOrders))
+  }, [recentOrders])
 
   useEffect(() => {
-    localStorage.setItem(KEYS.accounts, JSON.stringify(accounts))
-  }, [accounts])
+    if (coupon) localStorage.setItem(COUPON_KEY, coupon)
+    else localStorage.removeItem(COUPON_KEY)
+    if (extraPercent > 0) localStorage.setItem('medica-coupon-percent', String(extraPercent))
+    else localStorage.removeItem('medica-coupon-percent')
+  }, [coupon, extraPercent])
 
-  useEffect(() => {
-    if (club) localStorage.setItem(KEYS.club, JSON.stringify(club))
-  }, [club])
+  function notify(message: string) {
+    setToast(message)
+    if (toastTimer.current) window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(''), 2200)
+  }
 
-  useEffect(() => {
-    localStorage.setItem(KEYS.repairs, JSON.stringify(repairs))
-  }, [repairs])
+  const detailed = useMemo<CartDetail[]>(
+    () =>
+      cart.flatMap((line) => {
+        const product = products.find((item) => item.id === line.productId)
+        return product ? [{ ...line, product }] : []
+      }),
+    [cart, products],
+  )
 
-  useEffect(() => {
-    if (audience) localStorage.setItem(KEYS.audience, audience)
-  }, [audience])
+  const totals = useMemo(() => {
+    const personal = Boolean(coupon) && extraPercent > 0 && coupon?.toUpperCase() !== settings.couponCode.toUpperCase()
+    return quote(
+      detailed.reduce((sum, line) => sum + line.product.price * line.qty, 0),
+      Boolean(coupon) && (coupon?.toUpperCase() === settings.couponCode.toUpperCase() || personal),
+      personal ? { ...settings, couponPercent: extraPercent } : settings,
+    )
+  }, [detailed, coupon, settings, extraPercent])
 
-  useEffect(() => {
-    if (!toast) return
-    const timer = window.setTimeout(() => setToast(''), 2200)
-    return () => window.clearTimeout(timer)
-  }, [toast])
+  const cartCount = detailed.reduce((sum, line) => sum + line.qty, 0)
 
-  const value = useMemo<StoreValue>(() => {
-    const setAudience = (next: Audience) => setAudienceState(next)
+  function addToCart(productId: string, qty = 1, options?: { size?: string; color?: string; other?: string }) {
+    const product = products.find((item) => item.id === productId)
+    const size = options?.size || undefined
+    const color = options?.color || undefined
+    const other = options?.other || undefined
+    const available = product ? optionStock(product, { size, color, other }) : 0
+    if (!product || available <= 0 || qty <= 0) return
+    const key = cartKey(productId, size, color, other)
+    setCart((prev) => {
+      const existing = prev.find((line) => cartKey(line.productId, line.size, line.color, line.other) === key)
+      const nextQty = Math.min(available, (existing?.qty ?? 0) + qty)
+      if (existing) return prev.map((line) => (cartKey(line.productId, line.size, line.color, line.other) === key ? { ...line, qty: nextQty } : line))
+      return [...prev, { productId, qty: nextQty, size, color, other }]
+    })
+    notify('נוסף לסל')
+  }
 
-    const addToCart = (id: string, qty = 1, options?: { color?: string; storage?: string; priceAdd?: number }) => {
-      const product = products.find((item) => item.id === id)
-      if (!product || !product.active || product.stock <= 0) {
-        setToast('הפריט אזל מהמלאי')
-        return
-      }
-      if (audience === 'business' && !businessUser) {
-        setToast('התחברו למחירון העסקי כדי להוסיף לסל')
-        return
-      }
-      const color = options?.color
-      const storage = options?.storage
-      const priceAdd = options?.priceAdd ?? 0
-      setCart((prev) => {
-        const index = prev.findIndex((line) => lineKey(line) === lineKey({ productId: id, color, storage }))
-        const current = index >= 0 ? prev[index].qty : 0
-        const nextQty = Math.min(product.stock, current + qty)
-        const nextLine = { productId: id, qty: nextQty, color, storage, priceAdd }
-        if (index >= 0) {
-          const copy = [...prev]
-          copy[index] = nextLine
-          return copy
-        }
-        return [...prev, nextLine]
+  function setQty(key: string, qty: number) {
+    const current = cart.find((line) => cartKey(line.productId, line.size, line.color, line.other) === key)
+    const product = products.find((item) => item.id === current?.productId)
+    if (!current || !product) return
+    if (qty <= 0) {
+      setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color, line.other) !== key))
+      return
+    }
+    const nextQty = Math.min(optionStock(product, current), qty)
+    setCart((prev) => prev.map((line) => (cartKey(line.productId, line.size, line.color, line.other) === key ? { ...line, qty: nextQty } : line)))
+  }
+
+  function removeFromCart(key: string) {
+    setCart((prev) => prev.filter((line) => cartKey(line.productId, line.size, line.color, line.other) !== key))
+  }
+
+  async function applyCoupon(code: string) {
+    const normalized = code.trim().toUpperCase()
+    if (normalized === settings.couponCode.toUpperCase()) {
+      setCoupon(settings.couponCode)
+      setExtraPercent(0)
+      notify(`קופון ${settings.couponCode} הופעל`)
+      return true
+    }
+    try {
+      const data = await accountFetch<{ code: string; percent: number }>('/api/account/coupon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: normalized }),
       })
-      setToast('נוסף לסל')
+      setCoupon(data.code)
+      setExtraPercent(data.percent)
+      notify(`קופון ${data.code} הופעל`)
+      return true
+    } catch {
+      notify('הקוד לא מוכר, או שהוא שייך לחשבון אחר. צריך להיות מחוברים כלקוח.')
+      return false
     }
+  }
 
-    const setQty = (key: string, qty: number) => {
-      const current = cart.find((line) => lineKey(line) === key)
-      const product = products.find((item) => item.id === current?.productId)
-      if (!current || !product) return
-      if (qty <= 0) {
-        setCart((prev) => prev.filter((line) => lineKey(line) !== key))
-        return
-      }
-      const nextQty = Math.min(product.stock, qty)
-      setCart((prev) => prev.map((line) => (lineKey(line) === key ? { ...line, qty: nextQty } : line)))
-    }
+  function clearCoupon() {
+    setCoupon(null)
+    setExtraPercent(0)
+  }
 
-    const removeFromCart = (key: string) => {
-      setCart((prev) => prev.filter((line) => lineKey(line) !== key))
-      setToast('הוסר מהסל')
-    }
-
-    const applySetup = (setupId: string, qty: number) => {
-      if (!audience) return
-      if (audience === 'business' && !businessUser) {
-        setToast('התחברו למחירון העסקי כדי להוסיף לסל')
-        return
-      }
-      const ids = blueprintFor(setupId, audience)
-      let added = 0
-      let skipped = 0
-      const next = [...cart]
-      for (const id of ids) {
-        const product = products.find((item) => item.id === id)
-        if (!product || !product.active || product.stock <= 0) {
-          skipped += 1
-          continue
-        }
-        const nextQty = Math.max(1, Math.min(qty, product.stock))
-        const index = next.findIndex((line) => line.productId === id && !line.color && !line.storage)
-        if (index >= 0) next[index] = { productId: id, qty: nextQty }
-        else next.push({ productId: id, qty: nextQty })
-        added += 1
-      }
-      setCart(next)
-      if (added === 0) setToast('הסטאפ לא זמין כרגע')
-      else if (skipped > 0) setToast('הסטאפ נוסף חלקית, יש חוסר במלאי')
-      else setToast('הסטאפ נוסף לסל')
-    }
-
-    const setSetupQty = (setupId: string, qty: number) => {
-      setCart((prev) =>
-        prev.map((line) => {
-          const product = products.find((item) => item.id === line.productId)
-          if (product?.setupId !== setupId) return line
-          return { ...line, qty: Math.max(1, Math.min(qty, product.stock)) }
-        }),
+  async function placeOrder(customer: Customer) {
+    if (detailed.length === 0) return null
+    try {
+      const data = await placeStoreOrder(
+        customer,
+        detailed.map((line) => ({ productId: line.productId, qty: line.qty, size: line.size, color: line.color, other: line.other })),
+        coupon,
       )
-    }
-
-    const placeOrder = (input: PlaceInput) => {
-      if (!audience) return null
-      if (audience === 'business' && !businessUser) {
-        setToast('התחברו למחירון העסקי כדי להזמין')
-        return null
-      }
-      const priced = quote(products, cart, audience, input.ship)
-      const stockIssue = priced.lines.find((line) => line.qty > line.product.stock)
-      if (priced.lines.length === 0 || stockIssue) {
-        setToast(priced.lines.length === 0 ? 'הסל ריק' : `אין מספיק מלאי ל${stockIssue?.product.name ?? 'פריט'}`)
-        return null
-      }
-      const id = `DS-${Math.floor(10000 + Math.random() * 90000)}`
-      const pointsEarned = audience === 'private' && club && input.kind === 'order' ? Math.floor(priced.total / 10) : 0
-      if (pointsEarned > 0 && club) {
-        setClub({ ...club, points: club.points + pointsEarned, spent: club.spent + priced.total })
-      }
-      const order: Order = {
-        id,
-        audience,
-        kind: input.kind,
-        ship: input.ship,
-        payment: input.payment,
-        payments: input.payments,
-        createdAt: new Date().toISOString(),
-        status: 'new',
-        lines: priced.lines.map((line) => ({
-          productId: line.product.id,
-          name: [line.product.name, line.storage, line.color].filter(Boolean).join(' · '),
-          qty: line.qty,
-          unit: line.unit,
-        })),
-        discount: priced.discount,
-        shipping: priced.shipping,
-        vat: priced.vat,
-        total: priced.total,
-        customer: input.customer,
-        invoiceId: input.customer.email ? `INV-${id}` : undefined,
-        invoiceSentAt: input.customer.email ? new Date().toISOString() : undefined,
-        pointsEarned: pointsEarned || undefined,
-      }
-      setOrders((prev) => [order, ...prev])
-      if (input.kind === 'order') {
-        const used = new Map<string, number>()
-        for (const line of cart) used.set(line.productId, (used.get(line.productId) ?? 0) + line.qty)
-        setProducts((prev) =>
-          prev.map((product) => {
-            const qty = used.get(product.id) ?? 0
-            return qty ? { ...product, stock: Math.max(0, product.stock - qty) } : product
-          }),
-        )
-      }
+      setRecentOrders((prev) => [data.order, ...prev.filter((order) => order.id !== data.order.id)])
       setCart([])
-      return id
+      setCoupon(null)
+      setExtraPercent(0)
+      void notifyOrderCreated(data.order, data.stockAfter, customer.language || 'he')
+      return data.order.id
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : 'לא ניתן לקלוט את ההזמנה')
+      return null
     }
+  }
 
-    return {
-      audience,
-      setAudience,
-      products,
-      cart,
-      orders,
-      toast,
-      admin,
-      addToCart,
-      setQty,
-      removeFromCart,
-      applySetup,
-      setSetupQty,
-      placeOrder,
-      updateProduct: (id, patch) => {
-        setProducts((prev) => prev.map((product) => (product.id === id ? { ...product, ...patch } : product)))
-      },
-      addProduct: (product) => setProducts((prev) => [product, ...prev]),
-      deleteProduct: (id) => {
-        setProducts((prev) => prev.filter((product) => product.id !== id))
-        setCart((prev) => prev.filter((line) => line.productId !== id))
-      },
-      resetCatalog: () => setProducts(SEED.map((product) => ({ ...product, specs: [...product.specs] }))),
-      setOrderStatus: (id, status) => {
-        setOrders((prev) => prev.map((order) => (order.id === id ? { ...order, status } : order)))
-      },
-      login: (password) => {
-        if (password.trim() !== ADMIN_PASSWORD) return false
-        sessionStorage.setItem(KEYS.admin, '1')
-        setAdmin(true)
-        return true
-      },
-      logout: () => {
-        sessionStorage.removeItem(KEYS.admin)
-        setAdmin(false)
-      },
-      accounts,
-      businessUser,
-      pricesOpen: audience !== 'business' || !!businessUser,
-      registerBusiness: (input) => {
-        const email = input.email.trim().toLowerCase()
-        if (input.company.trim().length < 2) return { ok: false, message: 'חסר שם חברה' }
-        if (input.hp.replace(/\D/g, '').length !== 9) return { ok: false, message: 'ח.פ צריך 9 ספרות' }
-        if (input.contact.trim().length < 2) return { ok: false, message: 'חסר איש קשר' }
-        if (input.phone.replace(/\D/g, '').length < 9) return { ok: false, message: 'טלפון לא תקין' }
-        if (!email.includes('@')) return { ok: false, message: 'אימייל לא תקין' }
-        if (accounts.some((account) => account.email === email || account.username === email)) {
-          return { ok: false, message: 'העסק הזה כבר רשום. התחברו עם האימייל.' }
-        }
-        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-        const password = Array.from({ length: 8 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
-        const account: BusinessAccount = { ...input, email, username: email, password, company: input.company.trim(), contact: input.contact.trim() }
-        setAccounts((prev) => [...prev, account])
-        sessionStorage.setItem(KEYS.business, account.username)
-        setBusinessUser(account)
-        return { ok: true, message: 'החשבון נפתח', account }
-      },
-      loginBusiness: (username, password) => {
-        const account = accounts.find((item) => item.username === username.trim().toLowerCase() && item.password === password.trim())
-        if (!account) return false
-        sessionStorage.setItem(KEYS.business, account.username)
-        setBusinessUser(account)
-        return true
-      },
-      logoutBusiness: () => {
-        sessionStorage.removeItem(KEYS.business)
-        setBusinessUser(null)
-      },
-      club,
-      joinClub: (input) => {
-        const phone = input.phone.replace(/\D/g, '')
-        if (input.name.trim().length < 2 || phone.length < 9 || !input.email.includes('@')) return false
-        setClub({
-          name: input.name.trim(),
-          phone,
-          email: input.email.trim().toLowerCase(),
-          points: club?.points ?? 0,
-          spent: club?.spent ?? 0,
-          claimed: club?.claimed ?? [],
-        })
-        setToast('הצטרפתם למועדון')
-        return true
-      },
-      claimGift: (giftId) => {
-        const gift = clubGifts.find((item) => item.id === giftId)
-        if (!club || !gift || club.spent < gift.spend || club.claimed.includes(giftId)) return
-        setClub({ ...club, claimed: [...club.claimed, giftId] })
-        setToast('המתנה נרשמה לאיסוף')
-      },
-      repairs,
-      submitRepair: (input) => {
-        const id = `LAB-${Math.floor(1000 + Math.random() * 9000)}`
-        const request: RepairRequest = { ...input, id, createdAt: new Date().toISOString() }
-        setRepairs((prev) => [request, ...prev])
-        setToast('הבקשה נקלטה')
-        return id
-      },
-    }
-  }, [accounts, admin, audience, businessUser, cart, club, orders, products, repairs, toast])
+  async function findOrder(id: string) {
+    const local = recentOrders.find((order) => order.id.toLowerCase() === id.toLowerCase())
+    return (await findStoreOrder(id)) ?? local ?? null
+  }
+
+  const value: StoreValue = {
+    ready,
+    error,
+    products,
+    categories,
+    settings,
+    cart: detailed,
+    recentOrders,
+    coupon,
+    toast,
+    totals,
+    cartCount,
+    refreshCatalog,
+    addToCart,
+    setQty,
+    removeFromCart,
+    applyCoupon,
+    clearCoupon,
+    placeOrder,
+    findOrder,
+  }
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
 
 export function useStore() {
-  const store = useContext(StoreContext)
-  if (!store) throw new Error('useStore must be used within StoreProvider')
-  return store
+  const value = useContext(StoreContext)
+  if (!value) throw new Error('useStore מחוץ לספק')
+  return value
 }

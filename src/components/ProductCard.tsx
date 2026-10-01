@@ -1,44 +1,36 @@
 import { Link } from 'react-router-dom'
-import { categoryName, setupById } from '../data'
-import { money, unitFor } from '../pricing'
-import { useStore } from '../store'
+import { productImage } from '../data'
+import { money } from '../pricing'
 import type { Product } from '../types'
-import { Glyph, ProductPhoto, Stars } from './ui'
+import { useStore } from '../store'
+import { BadgeTag, Stars } from './ui'
 
 export function ProductCard({ product }: { product: Product }) {
-  const { audience, addToCart, cart, pricesOpen } = useStore()
-  if (!audience) return null
-  const priced = unitFor(product, audience, 1)
-  const inCart = cart.find((line) => line.productId === product.id)?.qty ?? 0
-  const setup = setupById(product.setupId)
+  const { addToCart } = useStore()
   const soldOut = product.stock <= 0
-  const photo = product.images?.[0]
-
+  const needsChoice = Boolean(product.choices?.size || product.choices?.color || product.choices?.other || product.sizes?.length || product.colors?.length)
   return (
-    <article className="pcard">
-      <Link to={`/p/${product.id}`} className={`art cat-${product.category}`}>
-        <ProductPhoto src={photo} alt={product.name} />
-        {!photo && <span className="art-brand">{product.brand}</span>}
-        {product.badge && <span className="badge">{product.badge}</span>}
-        {!photo && <Glyph cat={product.category} />}
+    <article className="card">
+      <Link to={`/p/${product.id}`} className="card-media">
+        <BadgeTag badge={product.badge} />
+        <img src={productImage(product)} alt="" />
       </Link>
-      <div className="body">
-        <p className="eyebrow">{categoryName(product.category)}</p>
-        <h3>
-          <Link to={`/p/${product.id}`}>{product.name}</Link>
-        </h3>
-        <Stars value={product.rating} />
-        {setup && <p className="chip">חלק מ{setup.name}</p>}
-        {pricesOpen && (
-          <div className="price-row">
-            <strong className="price">{money(priced.unit)}</strong>
-            <span className="muted">{audience === 'business' ? 'לפני מע״מ' : 'כולל מע״מ'}</span>
-          </div>
-        )}
-        {product.stock > 0 && product.stock <= 5 && <p className="low">נותרו {product.stock}</p>}
-        {pricesOpen && (
-          <button type="button" className="btn btn-dark" disabled={soldOut} onClick={() => addToCart(product.id)}>
-            {soldOut ? 'אזל' : inCart > 0 ? `בסל · ${inCart}` : 'הוספה לסל'}
+      <div className="card-body">
+        <Link to={`/p/${product.id}`} className="card-title">
+          {product.name}
+        </Link>
+        <Stars rating={product.rating} />
+        <div className="price-row">
+          <span className={product.compareAt ? 'price-now discounted' : 'price-now'}>{money(product.price)}</span>
+          {product.compareAt ? <span className="compare">{money(product.compareAt)}</span> : null}
+        </div>
+        {needsChoice ? (
+          <Link className="btn full" to={`/p/${product.id}`}>
+            {soldOut ? 'אזל במלאי הדמו' : 'בחירת מידה / צבע'}
+          </Link>
+        ) : (
+          <button type="button" className="btn full" disabled={soldOut} onClick={() => addToCart(product.id)}>
+            {soldOut ? 'אזל במלאי הדמו' : 'הוספה לסל'}
           </button>
         )}
       </div>

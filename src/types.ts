@@ -1,112 +1,109 @@
-export type Audience = 'private' | 'business'
+export type CategoryId = string
 
-export type CategoryId = 'mobile' | 'computer' | 'gaming' | 'accessories' | 'repair' | 'enterprise'
-
-export type ShipMethod = 'standard' | 'express' | 'pickup'
-
-export type OrderStatus = 'new' | 'processing' | 'done' | 'cancelled'
+export type Badge = 'new' | 'sale' | 'popular'
 
 export type Product = {
   id: string
   name: string
-  brand: string
   category: CategoryId
   price: number
-  blurb: string
-  story?: string
+  compareAt?: number
+  description: string
   specs: string[]
-  setupId?: string
-  role?: string
-  fit: 'all' | Audience
-  badge?: string
   stock: number
-  active: boolean
+  badge?: Badge
   rating: number
   reviews: number
-  pairWith?: string[]
-  sub?: string
-  colors?: { id: string; name: string; hex: string }[]
-  storages?: { id: string; label: string; add: number }[]
-  images?: string[]
-  official?: string
-  video?: string
+  tone: string
+  image?: string
+  active?: boolean
+  sizes?: string[]
+  colors?: string[]
+  choices?: { size: boolean; color: boolean; other: boolean; otherLabel: string; others: string[] }
+  variants?: VariantRow[]
 }
 
-export type Setup = {
-  id: string
+export type VariantRow = { size: string; color: string; other: string; stock: number }
+
+export function optionStock(product: Product, pick: { size?: string; color?: string; other?: string } = {}) {
+  const rows = product.variants ?? []
+  if (!rows.length) return product.stock
+  return rows
+    .filter((row) => (!pick.size || row.size === pick.size) && (!pick.color || row.color === pick.color) && (!pick.other || row.other === pick.other))
+    .reduce((sum, row) => sum + row.stock, 0)
+}
+
+export type ShopSettings = {
+  storeName: string
+  tagline: string
+  banner: string
+  showBanner: boolean
+  disclaimer: string
+  shippingFee: number
+  freeFrom: number
+  couponCode: string
+  couponPercent: number
+  paymentNote: string
+  loyaltyMode: 'points' | 'percent'
+  pointsPer100: number
+  clubPercent: number
+  notifyEmail: string
+  smtpUser: string
+  smtpPass?: string
+  smtpConfigured?: boolean
+}
+
+export type Category = {
+  id: CategoryId
   name: string
-  line: string
-  roles: { id: string; label: string }[]
+  blurb: string
+  sort?: number
+  image?: string
+  active?: boolean
 }
 
 export type CartLine = {
   productId: string
   qty: number
+  size?: string
   color?: string
-  storage?: string
-  priceAdd?: number
+  other?: string
+}
+
+export function variantLabel(item: { size?: string; color?: string; other?: string }) {
+  return [item.size ? `מידה ${item.size}` : '', item.color ? `צבע ${item.color}` : '', item.other || ''].filter(Boolean).join(' · ')
+}
+
+export type Customer = {
+  name: string
+  phone: string
+  email?: string
+  city: string
+  address: string
+  customerId?: string
+  language?: string
+}
+
+export type OrderStatus = 'received' | 'packing' | 'shipped' | 'delivered'
+
+export type OrderItem = {
+  productId: string
+  name: string
+  price: number
+  qty: number
+  size?: string
+  color?: string
 }
 
 export type Order = {
   id: string
-  audience: Audience
-  kind: 'order' | 'quote'
-  ship: ShipMethod
-  payment: string
-  payments: number
   createdAt: string
   status: OrderStatus
-  lines: { productId: string; name: string; qty: number; unit: number }[]
+  customer: Customer
+  items: OrderItem[]
+  subtotal: number
   discount: number
   shipping: number
-  vat: number
   total: number
-  customer: {
-    name: string
-    phone: string
-    address: string
-    note: string
-    email: string
-  }
-  invoiceId?: string
-  invoiceSentAt?: string
-  pointsEarned?: number
-}
-
-export type ClubProfile = {
-  name: string
-  phone: string
-  email: string
-  points: number
-  spent: number
-  claimed: string[]
-}
-
-export type RepairRequest = {
-  id: string
-  name: string
-  phone: string
-  device: string
-  issue: string
-  visit: 'home' | 'lab'
-  photos: string[]
-  createdAt: string
-}
-
-export type BusinessAccount = {
-  username: string
-  password: string
-  company: string
-  hp: string
-  contact: string
-  phone: string
-  email: string
-}
-
-export type PlaceInput = {
-  kind: 'order' | 'quote'
-  ship: ShipMethod
-  payment: string
-  payments: number
-  customer: Order['customer']
+  coupon?: string
 }

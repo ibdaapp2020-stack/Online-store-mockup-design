@@ -1,208 +1,223 @@
-import { useState, type ChangeEvent, type ReactNode } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
-import { Summary } from '../components/Summary'
-import { money, quote } from '../pricing'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { EmptyState, useTitle } from '../components/ui'
+import { money } from '../pricing'
+import { variantLabel } from '../types'
+import { PICKUP } from '../pickup'
 import { useStore } from '../store'
-import type { ShipMethod } from '../types'
+import { accountFetch } from '../lib/data/http'
 
-const shipLabel: Record<ShipMethod, string> = {
-  standard: 'שליח עד הבית',
-  express: 'אקספרס, מחר',
-  pickup: 'איסוף עצמי',
+type FormState = {
+  name: string
+  phone: string
+  email: string
+  city: string
+  address: string
+  card: string
+  expiry: string
+  cvv: string
 }
 
-export function Checkout() {
-  const { audience, products, cart, placeOrder, pricesOpen, club } = useStore()
+const EMPTY: FormState = { name: '', phone: '', email: '', city: '', address: '', card: '', expiry: '', cvv: '' }
+
+function problems(form: FormState) {
+  const missing =
+    !form.name.trim() || !form.phone.trim() || !form.city.trim() || !form.address.trim() || !form.expiry.trim() || !form.cvv.trim()
+  const cardDigits = form.card.replace(/\D/g, '')
+  const list: string[] = []
+  if (missing) list.push('נא למלא את כל השדות')
+  if (cardDigits.length !== 16) list.push('מספר הכרטיס חייב להכיל 16 ספרות')
+  return list
+}
+
+export function CheckoutPage() {
+  useTitle('תשלום דמו')
+  const { cart, totals, coupon, settings, placeOrder } = useStore()
   const navigate = useNavigate()
-  const [ship, setShip] = useState<ShipMethod>('standard')
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const [form, setForm] = useState({
-    name: club?.name ?? '',
-    phone: club?.phone ?? '',
-    email: club?.email ?? '',
-    company: '',
-    hp: '',
-    city: '',
-    street: '',
-    note: '',
-    payment: audience === 'business' ? 'שוטף +30' : 'Visa',
-    payments: '1',
-  })
+  const [form, setForm] = useState<FormState>(EMPTY)
+  const [savedProfile, setSavedProfile] = useState(false)
+  const [errors, setErrors] = useState<string[]>([])
+  const [tried, setTried] = useState(false)
+  const [paying, setPaying] = useState(false)
 
-  if (!audience) return null
-  if (audience === 'business' && !pricesOpen) return <Navigate to="/b2b" replace />
-  const priced = quote(products, cart, audience, ship)
-  if (priced.lines.length === 0) return <Navigate to="/cart" replace />
+  useEffect(() => {
+    void accountFetch<{ customer?: { name: string; phone: string; email?: string; city: string; address: string } }>('/api/account/me')
+      .catch(() => null)
+      .then((data) => {
+        const customer = data?.customer
+        if (!customer?.name) return
+        setForm((current) => ({
+          ...current,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email || current.email,
+          city: customer.city,
+          address: customer.address,
+        }))
+        setSavedProfile(Boolean(customer.name && customer.phone && customer.city && customer.address))
+      })
+  }, [])
 
-  const methods: ShipMethod[] = audience === 'business' ? ['standard', 'pickup'] : ['standard', 'express', 'pickup']
-  const paymentOptions =
-    audience === 'business'
-      ? ['שוטף +30', 'שוטף +60', 'העברה בנקאית', 'Visa', 'Mastercard', 'ישראכרט', 'שיק']
-      : ['Visa', 'Mastercard', 'ישראכרט', 'אמריקן אקספרס', 'דיינרס', 'Bit', 'PayBox', 'Apple Pay', 'Google Pay', 'העברה בנקאית']
-  const cardPayments = ['Visa', 'Mastercard', 'ישראכרט', 'אמריקן אקספרס', 'דיינרס']
-  const activePayment = paymentOptions.includes(form.payment) ? form.payment : paymentOptions[0]
-
-  const set = (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setForm((prev) => ({ ...prev, [key]: event.target.value }))
+  if (cart.length === 0) {
+    return (
+      <EmptyState
+        title="אין מה לשלם"
+        text="הסל ריק, ולכן קופת הדמו לא נפתחת."
+        action={
+          <Link className="btn" to="/catalog">
+            לקטלוג
+          </Link>
+        }
+      />
+    )
   }
 
-  const submit = (kind: 'order' | 'quote') => {
-    const next: Record<string, string> = {}
-    if (!form.email.includes('@')) next.email = 'צריך אימייל כדי לשלוח חשבונית'
-    if (audience === 'business') {
-      if (form.company.trim().length < 2) next.company = 'חסר שם חברה'
-      if (form.hp.replace(/\D/g, '').length !== 9) next.hp = 'ח.פ צריך 9 ספרות'
-      if (form.name.trim().length < 2) next.name = 'חסר איש קשר'
-      if (!form.email.includes('@')) next.email = 'אימייל לא תקין'
-    } else if (form.name.trim().length < 2) {
-      next.name = 'חסר שם מלא'
-    }
-    if (form.phone.replace(/\D/g, '').length < 9) next.phone = 'טלפון לא תקין'
-    if (ship !== 'pickup') {
-      if (form.city.trim().length < 2) next.city = 'חסרה עיר'
-      if (form.street.trim().length < 2) next.street = 'חסרה כתובת'
-    }
-    setErrors(next)
-    if (Object.keys(next).length > 0) return
+  function update(key: keyof FormState, value: string) {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
 
-    const id = placeOrder({
-      kind,
-      ship,
-      payment: activePayment,
-      payments: cardPayments.includes(activePayment) ? Number(form.payments) : 1,
-      customer: {
-        name: audience === 'business' ? `${form.company.trim()} · ${form.name.trim()}` : form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
-        address: ship === 'pickup' ? 'איסוף עצמי' : `${form.street.trim()}, ${form.city.trim()}`,
-        note: [form.note.trim(), form.hp.trim() ? `ח.פ ${form.hp.trim()}` : ''].filter(Boolean).join(' · '),
-      },
-    })
-    if (id) navigate(`/thanks/${id}`)
+  const invalid = {
+    name: tried && !form.name.trim(),
+    phone: tried && !form.phone.trim(),
+    city: tried && !form.city.trim(),
+    address: tried && !form.address.trim(),
+    card: tried && form.card.replace(/\D/g, '').length !== 16,
+    expiry: tried && !form.expiry.trim(),
+    cvv: tried && !form.cvv.trim(),
   }
 
   return (
-    <div className="wrap check">
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          submit('order')
-        }}
-      >
-        <h1>{audience === 'business' ? 'הזמנה או הצעת מחיר' : 'תשלום'}</h1>
-        <p className="fine">חשבונית תיפתח אוטומטית לאימייל.</p>
-        {audience === 'private' && club && <p className="saving">ההזמנה מוסיפה {Math.floor(priced.total / 10)} נקודות למועדון</p>}
-
-        <fieldset>
-          <legend>משלוח</legend>
-          <div className="choice-row">
-            {methods.map((method) => {
-              const option = quote(products, cart, audience, method)
-              return (
-                <label key={method} className={ship === method ? 'choice on' : 'choice'}>
-                  <input type="radio" name="ship" checked={ship === method} onChange={() => setShip(method)} />
-                  <span>{shipLabel[method]}</span>
-                  <b>{option.shipping === 0 ? 'חינם' : money(option.shipping)}</b>
-                </label>
-              )
-            })}
-          </div>
-        </fieldset>
-
-        <div className="form-grid">
-          {audience === 'business' && (
+    <div>
+      <h1>תשלום להדגמה</h1>
+      <p className="notice">{settings.paymentNote}</p>
+      <div className="checkout-grid">
+        <form
+          className="panel form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (paying) return
+            setTried(true)
+            const nextErrors = problems(form)
+            setErrors(nextErrors)
+            if (nextErrors.length > 0) return
+            setPaying(true)
+            window.setTimeout(() => {
+              void placeOrder({
+                name: form.name,
+                phone: form.phone,
+                email: form.email.trim(),
+                city: form.city,
+                address: form.address,
+              }).then((id) => {
+                if (id) navigate(`/order/${id}`)
+                else setPaying(false)
+              })
+            }, 700)
+          }}
+        >
+          <h2>פרטי מקבל</h2>
+          <p className="muted">
+            איסוף עצמי:{' '}
+            <a href={PICKUP.maps} target="_blank" rel="noreferrer">
+              {PICKUP.line}
+            </a>
+            . למשלוח עד הבית נשתמש בכתובת השמורה.
+          </p>
+          {savedProfile ? (
+            <p className="profile-note">
+              ההזמנה על שם {form.name}, {form.phone}, {form.city}, {form.address}.{' '}
+              <Link to="/account">עדכון פרטים</Link>
+            </p>
+          ) : (
             <>
-              <Field label="שם חברה" error={errors.company}>
-                <input value={form.company} onChange={set('company')} autoComplete="organization" />
-              </Field>
-              <Field label="ח.פ" error={errors.hp}>
-                <input value={form.hp} onChange={set('hp')} inputMode="numeric" dir="ltr" />
-              </Field>
+          <label className={invalid.name ? 'invalid' : ''}>
+            שם מלא
+            <input value={form.name} onChange={(event) => update('name', event.target.value)} autoComplete="off" />
+          </label>
+          <label className={invalid.phone ? 'invalid' : ''}>
+            טלפון
+            <input value={form.phone} onChange={(event) => update('phone', event.target.value)} autoComplete="off" />
+          </label>
+          <div className="split-fields">
+            <label className={invalid.city ? 'invalid' : ''}>
+              עיר
+              <input value={form.city} onChange={(event) => update('city', event.target.value)} autoComplete="off" />
+            </label>
+            <label className={invalid.address ? 'invalid' : ''}>
+              כתובת
+              <input value={form.address} onChange={(event) => update('address', event.target.value)} autoComplete="off" />
+            </label>
+          </div>
             </>
           )}
-          <Field label={audience === 'business' ? 'איש קשר' : 'שם מלא'} error={errors.name}>
-            <input value={form.name} onChange={set('name')} autoComplete="name" />
-          </Field>
-          <Field label="טלפון" error={errors.phone}>
-            <input value={form.phone} onChange={set('phone')} autoComplete="tel" inputMode="tel" dir="ltr" />
-          </Field>
-          <Field label="אימייל לחשבונית" error={errors.email}>
-            <input value={form.email} onChange={set('email')} autoComplete="email" dir="ltr" />
-          </Field>
-          {ship !== 'pickup' && (
-            <>
-              <Field label="עיר" error={errors.city}>
-                <input value={form.city} onChange={set('city')} autoComplete="address-level2" />
-              </Field>
-              <Field label="רחוב ומספר" error={errors.street}>
-                <input value={form.street} onChange={set('street')} autoComplete="street-address" />
-              </Field>
-            </>
-          )}
-        </div>
-
-        <fieldset>
-          <legend>תשלום</legend>
-          <div className="choice-row">
-            {paymentOptions.map((option) => (
-              <label key={option} className={activePayment === option ? 'choice on' : 'choice'}>
-                <input
-                  type="radio"
-                  name="payment"
-                  checked={activePayment === option}
-                  onChange={() => setForm((prev) => ({ ...prev, payment: option }))}
-                />
-                <span>{option}</span>
-              </label>
-            ))}
+          <label>
+            אימייל לאישור הזמנה
+            <input type="email" value={form.email} onChange={(event) => update('email', event.target.value)} autoComplete="email" placeholder="לא חובה" />
+          </label>
+          <h2>כרטיס מדומה</h2>
+          <p className="muted">כל מספר בן 16 ספרות מתקבל. המספר נשאר בטופס הזה בלבד ולא נשמר.</p>
+          <label className={invalid.card ? 'invalid' : ''}>
+            מספר כרטיס
+            <input
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="1111222233334444"
+              value={form.card}
+              onChange={(event) => update('card', event.target.value)}
+            />
+          </label>
+          <div className="split-fields">
+            <label className={invalid.expiry ? 'invalid' : ''}>
+              תוקף
+              <input placeholder="12/28" value={form.expiry} onChange={(event) => update('expiry', event.target.value)} autoComplete="off" />
+            </label>
+            <label className={invalid.cvv ? 'invalid' : ''}>
+              CVV
+              <input inputMode="numeric" autoComplete="off" value={form.cvv} onChange={(event) => update('cvv', event.target.value)} />
+            </label>
           </div>
-          {cardPayments.includes(activePayment) && priced.total >= 400 && (
-            <Field label="תשלומים">
-              <select value={form.payments} onChange={set('payments')}>
-                <option value="1">תשלום אחד</option>
-                <option value="3">3 תשלומים של {money(Math.ceil(priced.total / 3))}</option>
-                <option value="6">6 תשלומים של {money(Math.ceil(priced.total / 6))}</option>
-                <option value="12">12 תשלומים של {money(Math.ceil(priced.total / 12))}</option>
-              </select>
-            </Field>
-          )}
-        </fieldset>
-
-        <Field label="הערה">
-          <textarea value={form.note} onChange={set('note')} rows={3} />
-        </Field>
-
-        <div className="hero-actions">
-          <button type="submit" className="btn btn-primary">
-            {audience === 'business' ? 'שליחת הזמנה' : `תשלום ${money(priced.total)}`}
+          {errors.length > 0 ? (
+            <div role="alert" className="form-errors">
+              {errors.map((error) => (
+                <p key={error}>{error}</p>
+              ))}
+            </div>
+          ) : null}
+          <button type="submit" className="btn full" disabled={paying}>
+            {paying ? 'מעבד תשלום דמו...' : 'אישור תשלום דמו'}
           </button>
-          {audience === 'business' && (
-            <button type="button" className="btn btn-dark" onClick={() => submit('quote')}>
-              בקשת הצעת מחיר
-            </button>
-          )}
-        </div>
-        {audience === 'business' && <p className="fine">הזמנה מורידה מלאי. הצעת מחיר נשמרת בלי לגעת במלאי.</p>}
-      </form>
-      <Summary ship={ship} />
+        </form>
+        <aside className="panel summary">
+          <h2>ההזמנה</h2>
+          <ul className="mini-lines">
+            {cart.map((line) => (
+              <li key={line.productId}>
+                <span>
+                  {line.product.name}
+                  {variantLabel(line) ? ` (${variantLabel(line)})` : ''} × {line.qty}
+                </span>
+                <span>{money(line.product.price * line.qty)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="summary-row">
+            <span>ביניים</span>
+            <span>{money(totals.subtotal)}</span>
+          </div>
+          <div className="summary-row">
+            <span>הנחה {coupon ? `(${coupon})` : ''}</span>
+            <span>{totals.discount ? `−${money(totals.discount)}` : money(0)}</span>
+          </div>
+          <div className="summary-row">
+            <span>משלוח</span>
+            <span>{totals.shipping === 0 ? 'חינם' : money(totals.shipping)}</span>
+          </div>
+          <div className="summary-row total">
+            <span>סה״כ</span>
+            <span>{money(totals.total)}</span>
+          </div>
+        </aside>
+      </div>
     </div>
-  )
-}
-
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string
-  error?: string
-  children: ReactNode
-}) {
-  return (
-    <label className={error ? 'field bad' : 'field'}>
-      <span>{label}</span>
-      {children}
-      {error && <small>{error}</small>}
-    </label>
   )
 }

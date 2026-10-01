@@ -1,229 +1,223 @@
-import { useMemo, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ProductCard } from '../components/ProductCard'
-import { Empty } from '../components/ui'
-import { categories, productVisible } from '../data'
-import { unitFor } from '../pricing'
+import { EmptyState, SkeletonGrid, useTitle } from '../components/ui'
 import { useStore } from '../store'
-import type { Product } from '../types'
+import type { CategoryId } from '../types'
 
-type SortKey = 'featured' | 'price-asc' | 'price-desc' | 'rating' | 'name'
+const SORTS = [
+  { id: '', label: 'ברירת מחדל' },
+  { id: 'price-asc', label: 'מחיר: נמוך לגבוה' },
+  { id: 'price-desc', label: 'מחיר: גבוה לנמוך' },
+  { id: 'name', label: 'שם' },
+  { id: 'rating', label: 'דירוג' },
+]
 
-export function Catalog() {
-  const { cat = 'all' } = useParams()
+export function CatalogPage() {
+  useTitle('קטלוג')
+  const { products, categories, ready } = useStore()
   const [params, setParams] = useSearchParams()
-  const query = (params.get('q') ?? '').trim()
-  const sub = params.get('sub') ?? ''
-  const { audience, products, pricesOpen } = useStore()
-  const [sort, setSort] = useState<SortKey>('featured')
-  const [brands, setBrands] = useState<string[]>([])
-  const [minPrice, setMinPrice] = useState('')
-  const [maxPrice, setMaxPrice] = useState('')
-  const [color, setColor] = useState('')
-  const [storage, setStorage] = useState('')
-  const [stockOnly, setStockOnly] = useState(false)
-  const [minRating, setMinRating] = useState(0)
-  const [showFilters, setShowFilters] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const cat = params.get('cat') ?? ''
+  const sort = params.get('sort') ?? ''
+  const q = params.get('q') ?? ''
+  const min = params.get('min') ?? ''
+  const max = params.get('max') ?? ''
+  const stock = params.get('stock') === '1'
+  const sale = params.get('sale') === '1'
+  const badge = params.get('badge') ?? ''
+  const rating = Number(params.get('rating') || 0)
+  const size = params.get('size') ?? ''
+  const color = params.get('color') ?? ''
   const category = categories.find((item) => item.id === cat)
+  const sizes = [...new Set(products.flatMap((product) => product.sizes ?? []))].sort()
+  const colors = [...new Set(products.flatMap((product) => product.colors ?? []))]
 
-  const pool = useMemo(
-    () =>
-      products.filter((product) => {
-        if (!product.active || !productVisible(product, audience)) return false
-        if (cat !== 'all' && product.category !== cat) return false
-        if (!query) return true
-        const hay = `${product.name} ${product.brand} ${product.blurb} ${product.story ?? ''}`.toLowerCase()
-        return hay.includes(query.toLowerCase())
-      }),
-    [audience, cat, products, query],
-  )
+  function setParam(key: string, value: string) {
+    const next = new URLSearchParams(params)
+    if (!value) next.delete(key)
+    else next.set(key, value)
+    setParams(next)
+  }
 
-  const brandOptions = [...new Set(pool.map((product) => product.brand))].sort()
-  const colorOptions = [...new Set(pool.flatMap((product) => (product.colors ?? []).map((item) => item.name)))]
-  const storageOptions = [...new Set(pool.flatMap((product) => (product.storages ?? []).map((item) => item.label)))]
+  function clearFilters() {
+    setParams(new URLSearchParams())
+  }
 
-  const items = useMemo(() => {
-    const min = Number(minPrice)
-    const max = Number(maxPrice)
-    const list = pool.filter((product) => {
-      if (sub && product.sub !== sub) return false
-      if (brands.length && !brands.includes(product.brand)) return false
-      if (color && !(product.colors ?? []).some((item) => item.name === color)) return false
-      if (storage && !(product.storages ?? []).some((item) => item.label === storage)) return false
-      if (stockOnly && product.stock <= 0) return false
-      if (minRating && product.rating < minRating) return false
-      const price = audience ? unitFor(product, audience, 1).unit : product.price
-      if (minPrice !== '' && !Number.isNaN(min) && price < min) return false
-      if (maxPrice !== '' && !Number.isNaN(max) && price > max) return false
-      return true
-    })
-    const score = (product: Product) => (product.fit === audience ? 2 : product.fit === 'all' ? 1 : 0)
-    return list.sort((a, b) => {
-      if (sort === 'name') return a.name.localeCompare(b.name, 'he')
-      if (sort === 'price-asc' || sort === 'price-desc') {
-        const av = audience ? unitFor(a, audience, 1).unit : a.price
-        const bv = audience ? unitFor(b, audience, 1).unit : b.price
-        return sort === 'price-asc' ? av - bv : bv - av
-      }
-      if (sort === 'rating') return b.rating - a.rating
-      const diff = score(b) - score(a)
-      return diff !== 0 ? diff : b.reviews - a.reviews
-    })
-  }, [audience, brands, color, maxPrice, minPrice, minRating, pool, sort, stockOnly, storage, sub])
+  const filtered = products.filter((product) => {
+    const inCategory = !cat || product.category === (cat as CategoryId)
+    const haystack = `${product.name} ${product.description} ${(product.specs ?? []).join(' ')}`.toLowerCase()
+    const inSearch = !q.trim() || haystack.includes(q.trim().toLowerCase())
+    const minPrice = min === '' ? 0 : Number(min)
+    const maxPrice = max === '' ? Number.POSITIVE_INFINITY : Number(max)
+    const inPrice = product.price >= minPrice && product.price <= maxPrice
+    const inStock = !stock || product.stock > 0
+    const onSale = !sale || Boolean(product.compareAt && product.compareAt > product.price) || product.badge === 'sale'
+    const inBadge = !badge || product.badge === badge
+    const inRating = !rating || product.rating >= rating
+    const inSize = !size || (product.sizes ?? []).includes(size)
+    const inColor = !color || (product.colors ?? []).includes(color)
+    return inCategory && inSearch && inPrice && inStock && onSale && inBadge && inRating && inSize && inColor
+  })
 
-  const title = query ? `חיפוש: ${query}` : category?.name ?? 'כל המוצרים'
-  const toggleBrand = (brand: string) => setBrands((prev) => (prev.includes(brand) ? prev.filter((item) => item !== brand) : [...prev, brand]))
-
-  const filters = (
-    <div className="filter-body">
-      <label className="checkline">
-        <input type="checkbox" checked={stockOnly} onChange={(event) => setStockOnly(event.target.checked)} />
-        במלאי
-      </label>
-      <label className="field">
-        <span>דירוג</span>
-        <select value={minRating} onChange={(event) => setMinRating(Number(event.target.value))}>
-          <option value={0}>הכל</option>
-          <option value={4}>4 ומעלה</option>
-          <option value={4.5}>4.5 ומעלה</option>
-        </select>
-      </label>
-      {pricesOpen && (
-        <div className="price-filter">
-          <span>מחיר</span>
-          <input inputMode="numeric" placeholder="מ־" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} />
-          <input inputMode="numeric" placeholder="עד" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} />
-        </div>
-      )}
-      {brandOptions.length > 1 && (
-        <fieldset>
-          <legend>מותג</legend>
-          {brandOptions.map((brand) => (
-            <label key={brand} className="checkline">
-              <input type="checkbox" checked={brands.includes(brand)} onChange={() => toggleBrand(brand)} />
-              {brand}
-            </label>
-          ))}
-        </fieldset>
-      )}
-      {colorOptions.length > 0 && (
-        <label className="field">
-          <span>צבע</span>
-          <select value={color} onChange={(event) => setColor(event.target.value)}>
-            <option value="">הכל</option>
-            {colorOptions.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-      )}
-      {storageOptions.length > 0 && (
-        <label className="field">
-          <span>אחסון</span>
-          <select value={storage} onChange={(event) => setStorage(event.target.value)}>
-            <option value="">הכל</option>
-            {storageOptions.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-      )}
-      <button
-        type="button"
-        className="text-btn"
-        onClick={() => {
-          setBrands([])
-          setMinPrice('')
-          setMaxPrice('')
-          setColor('')
-          setStorage('')
-          setStockOnly(false)
-          setMinRating(0)
-          setSort('featured')
-          if (sub || query) setParams({})
-        }}
-      >
-        ניקוי סינון
-      </button>
-    </div>
-  )
+  const visible = [...filtered].sort((a, b) => {
+    if (sort === 'price-asc') return a.price - b.price
+    if (sort === 'price-desc') return b.price - a.price
+    if (sort === 'name') return a.name.localeCompare(b.name, 'he')
+    if (sort === 'rating') return b.rating - a.rating
+    return 0
+  })
 
   return (
-    <div className="wrap catalog">
-      <div className="sec-head">
+    <div>
+      <div className="section-head">
         <div>
-          <h1>{title}</h1>
-          <p className="muted">
-            {items.length} פריטים
-            {category && !query ? ` · ${category.line}` : ''}
-          </p>
+          <h1>{category ? category.name : 'הקטלוג'}</h1>
+          <p className="lede catalog-lede">{category ? category.blurb : 'כל מוצרי המדף להדגמה, בלי מרשם.'}</p>
         </div>
-        <label className="sort">
-          מיון
-          <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
-            <option value="featured">מומלצים</option>
-            <option value="price-asc">מחיר: מהנמוך</option>
-            <option value="price-desc">מחיר: מהגבוה</option>
-            <option value="rating">דירוג</option>
-            <option value="name">שם</option>
-          </select>
-        </label>
+        <button type="button" className="filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}>
+          סינון
+        </button>
       </div>
-      {cat === 'repair' && (
-        <Link className="lab-banner" to="/lab">
-          <strong>הצעת מחיר לתיקון</strong>
-          <span>מעלים תמונות של המכשיר ומקבלים מחיר לפני הגעה.</span>
-        </Link>
-      )}
-      {category && category.audience === 'business' && audience !== 'business' ? (
-        <Empty title="הקטגוריה לעסקים" text="ציוד מחלקות מוצג אחרי כניסה כלקוח עסקי." to="/" action="לכניסה העסקית" />
-      ) : (
-        <div className="catalog-layout">
-          <aside className="filters">
-            <button type="button" className="btn btn-ghost filter-toggle" onClick={() => setShowFilters((value) => !value)}>
-              סינון
+      <div className="catalog-layout">
+        <aside className={filtersOpen ? 'filters open' : 'filters'}>
+          <label>
+            חיפוש בקטלוג
+            <input value={q} onChange={(event) => setParam('q', event.target.value)} placeholder="שם, תיאור או מפרט" />
+          </label>
+          <div className="chip-list">
+            <button type="button" className={!cat ? 'chip on' : 'chip'} onClick={() => setParam('cat', '')}>
+              הכל
             </button>
-            <div className={showFilters ? 'filter-body' : 'filter-body hide-mobile'}>{filters}</div>
-          </aside>
-          <div>
-            {category && (
-              <div className="subnav">
-                <Link to={`/c/${category.id}`} className={sub ? '' : 'on'}>
-                  הכל
-                </Link>
-                {category.subs.map((item) => (
-                  <Link key={item.id} to={`/c/${category.id}?sub=${item.id}`} className={sub === item.id ? 'on' : ''}>
-                    {item.name}
-                  </Link>
+            {categories.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={cat === item.id ? 'chip on' : 'chip'}
+                onClick={() => setParam('cat', item.id)}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+          <div className="split-fields">
+            <label>
+              מחיר מ־
+              <input value={min} inputMode="numeric" placeholder="לא חובה" onChange={(event) => setParam('min', event.target.value)} />
+            </label>
+            <label>
+              עד
+              <input value={max} inputMode="numeric" placeholder="לא חובה" onChange={(event) => setParam('max', event.target.value)} />
+            </label>
+          </div>
+          <label className="check-line">
+            <input type="checkbox" checked={stock} onChange={(event) => setParam('stock', event.target.checked ? '1' : '')} />
+            במלאי בלבד
+          </label>
+          <label className="check-line">
+            <input type="checkbox" checked={sale} onChange={(event) => setParam('sale', event.target.checked ? '1' : '')} />
+            מבצעים בלבד
+          </label>
+          <label>
+            תווית
+            <select value={badge} onChange={(event) => setParam('badge', event.target.value)}>
+              <option value="">הכל</option>
+              <option value="popular">נמכר</option>
+              <option value="sale">מבצע</option>
+              <option value="new">חדש</option>
+            </select>
+          </label>
+          <label>
+            דירוג מינימלי
+            <select value={rating ? String(rating) : ''} onChange={(event) => setParam('rating', event.target.value)}>
+              <option value="">הכל</option>
+              <option value="3">3 ומעלה</option>
+              <option value="4">4 ומעלה</option>
+              <option value="4.5">4.5 ומעלה</option>
+            </select>
+          </label>
+          {sizes.length ? (
+            <label>
+              מידה
+              <select value={size} onChange={(event) => setParam('size', event.target.value)}>
+                <option value="">הכל</option>
+                {sizes.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
                 ))}
-              </div>
-            )}
-            {!category && cat === 'all' && (
-              <div className="subnav">
-                <Link to="/c/all" className="on">
-                  הכל
-                </Link>
-                {categories
-                  .filter((item) => item.audience === 'all' || item.audience === audience)
-                  .map((item) => (
-                    <Link key={item.id} to={`/c/${item.id}`}>
-                      {item.name}
-                    </Link>
-                  ))}
-              </div>
-            )}
-            {items.length === 0 ? (
-              <Empty title="לא מצאנו פריטים" text="נסו מילה אחרת או נקו את הסינון." to="/c/all" action="לכל המוצרים" />
-            ) : (
-              <div className="grid">
-                {items.map((product) => (
+              </select>
+            </label>
+          ) : null}
+          {colors.length ? (
+            <label>
+              צבע
+              <select value={color} onChange={(event) => setParam('color', event.target.value)}>
+                <option value="">הכל</option>
+                {colors.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            מיון
+            <select value={sort} onChange={(event) => setParam('sort', event.target.value)}>
+              {SORTS.map((option) => (
+                <option key={option.id || 'default'} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="text-btn" onClick={clearFilters}>
+            ניקוי הסינון
+          </button>
+        </aside>
+        <div>
+          {!ready ? (
+            <SkeletonGrid />
+          ) : visible.length === 0 ? (
+            <EmptyState
+              title="לא נמצאו מוצרים"
+              text={q ? `אין תוצאות עבור «${q}».` : 'אין מוצרים בקטגוריה הזו.'}
+              action={
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    const next = new URLSearchParams(params)
+                    next.delete('q')
+                    next.delete('cat')
+                    next.delete('min')
+                    next.delete('max')
+                    next.delete('stock')
+                    next.delete('sale')
+                    next.delete('badge')
+                    next.delete('rating')
+                    next.delete('size')
+                    next.delete('color')
+                    setParams(next)
+                  }}
+                >
+                  ניקוי הסינון
+                </button>
+              }
+            />
+          ) : (
+            <>
+              <p className="result-count">{visible.length} מוצרים</p>
+              <div className="product-grid">
+                {visible.map((product) => (
                   <ProductCard key={product.id} product={product} />
                 ))}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

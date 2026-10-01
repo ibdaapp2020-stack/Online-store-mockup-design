@@ -1,111 +1,77 @@
-import { Link } from 'react-router-dom'
-import { useState } from 'react'
-import type { CategoryId } from '../types'
+import { useEffect, useState, type ReactNode } from 'react'
+import type { Badge } from '../types'
 
-export function Logo({ light = false }: { light?: boolean }) {
+const BADGE_LABEL: Record<Badge, string> = {
+  new: 'חדש',
+  sale: 'מבצע',
+  popular: 'נמכר',
+}
+
+export function useTitle(title: string) {
+  useEffect(() => {
+    if (!title) return
+    document.title = `${title} · PRO PHARM`
+  }, [title])
+}
+
+export function useMockDelay(ms = 350) {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReady(true), ms)
+    return () => window.clearTimeout(timer)
+  }, [ms])
+  return ready
+}
+
+export function Stars({ rating, reviews }: { rating: number; reviews?: number }) {
+  const full = Math.round(rating)
   return (
-    <span className={light ? 'logo light' : 'logo'}>
-      <span className="mark" aria-hidden="true" />
-      <span className="word">DESIGMA</span>
+    <span className="stars" aria-label={`דירוג ${rating} מתוך 5`}>
+      <span aria-hidden="true">{'★★★★★'.slice(0, full)}</span>
+      <span className="stars-dim" aria-hidden="true">
+        {'★★★★★'.slice(full)}
+      </span>
+      <span className="rating-num">{rating.toFixed(1)}</span>
+      {typeof reviews === 'number' ? <span className="reviews">{reviews} ביקורות דמו</span> : null}
     </span>
   )
 }
 
-export function Stars({ value }: { value: number }) {
-  const full = Math.round(value)
-  return (
-    <span className="stars" aria-label={`דירוג ${value} מתוך 5`}>
-      {'★★★★★'.slice(0, full)}
-      <span className="dim">{'★★★★★'.slice(full)}</span>
-    </span>
-  )
+export function BadgeTag({ badge }: { badge?: Badge }) {
+  if (!badge) return null
+  return <span className={`badge ${badge}`}>{BADGE_LABEL[badge]}</span>
 }
 
-export function Qty({
-  value,
-  min = 1,
-  max = 99,
-  onChange,
-}: {
-  value: number
-  min?: number
-  max?: number
-  onChange: (value: number) => void
-}) {
+export function QtyControl({ qty, max, onChange }: { qty: number; max: number; onChange: (qty: number) => void }) {
   return (
     <div className="qty">
-      <button type="button" onClick={() => onChange(Math.max(min, value - 1))} aria-label="הפחתה">
+      <button type="button" aria-label="הפחתת כמות" onClick={() => onChange(qty - 1)} disabled={qty <= 1}>
         −
       </button>
-      <input
-        aria-label="כמות"
-        inputMode="numeric"
-        value={value}
-        onChange={(event) => {
-          const next = Number.parseInt(event.target.value, 10)
-          if (Number.isNaN(next)) return
-          onChange(Math.max(min, Math.min(max, next)))
-        }}
-      />
-      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} aria-label="הוספה">
+      <span>{qty}</span>
+      <button type="button" aria-label="הגברת כמות" onClick={() => onChange(qty + 1)} disabled={qty >= max}>
         +
       </button>
     </div>
   )
 }
 
-export function Glyph({ cat, size = 72 }: { cat: CategoryId; size?: number }) {
-  const props = { width: size, height: size, viewBox: '0 0 80 80', fill: 'none' }
-  if (cat === 'mobile') {
-    return (
-      <svg {...props} aria-hidden="true">
-        <rect x="27" y="10" width="26" height="60" rx="7" stroke="currentColor" strokeWidth="2.6" />
-        <circle cx="40" cy="62" r="2" fill="currentColor" />
-        <path d="M34 18h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      </svg>
-    )
-  }
-  if (cat === 'computer') {
-    return (
-      <svg {...props} aria-hidden="true">
-        <rect x="14" y="16" width="52" height="34" rx="4" stroke="currentColor" strokeWidth="2.6" />
-        <path d="M32 58h16M40 50v8" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
-      </svg>
-    )
-  }
-  if (cat === 'gaming') {
-    return (
-      <svg {...props} aria-hidden="true">
-        <rect x="12" y="28" width="56" height="26" rx="13" stroke="currentColor" strokeWidth="2.6" />
-        <path d="M24 41h8M28 37v8" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-        <circle cx="52" cy="38" r="2" fill="currentColor" />
-        <circle cx="58" cy="44" r="2" fill="currentColor" />
-      </svg>
-    )
-  }
+export function EmptyState({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
   return (
-    <svg {...props} aria-hidden="true">
-      <rect x="30" y="12" width="20" height="30" rx="6" stroke="currentColor" strokeWidth="2.6" />
-      <path d="M34 42h12v8a6 6 0 0 1-12 0v-8Z" stroke="currentColor" strokeWidth="2.6" />
-      <path d="M40 58v10" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
-    </svg>
+    <div className="empty">
+      <h2>{title}</h2>
+      <p>{text}</p>
+      {action}
+    </div>
   )
 }
 
-export function ProductPhoto({ src, alt }: { src?: string; alt: string }) {
-  const [failed, setFailed] = useState(false)
-  if (!src || failed) return null
-  return <img src={src} alt={alt} onError={() => setFailed(true)} />
-}
-
-export function Empty({ title, text, to, action }: { title: string; text: string; to: string; action: string }) {
+export function SkeletonGrid() {
   return (
-    <div className="empty">
-      <h1>{title}</h1>
-      <p>{text}</p>
-      <Link className="btn btn-primary" to={to}>
-        {action}
-      </Link>
+    <div className="product-grid" aria-hidden="true">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div key={index} className="skeleton-card" />
+      ))}
     </div>
   )
 }
