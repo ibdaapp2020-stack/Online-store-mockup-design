@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import { currentUser, resetPassword, watchAuth } from '../lib/data/auth'
 import { preferStoredImage, readLiveCatalog, snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
+import { productImageErrorView, validateProductImageFile } from '../lib/image-errors'
 import { emailAdminFetch } from '../lib/notify'
 import { storeUrl } from '../lib/surface'
 import { CATEGORIES, STATUS_LABEL } from '../data'
@@ -610,7 +611,18 @@ export function AdminProductForm() {
       await refreshCatalog()
       navigate('/products')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
+      const raw = reason instanceof Error ? reason.message : ''
+      const code = reason && typeof reason === 'object' && 'code' in reason ? String((reason as { code?: string }).code || '') : ''
+      const uploadFailed =
+        code.startsWith('image/') ||
+        code.startsWith('storage/') ||
+        /unauthorized|storage|העלות את התמונה|jpg, png|10mb|גדולה מדי/i.test(`${code} ${raw}`)
+      if (uploadFailed) {
+        const image = productImageErrorView(reason)
+        setError(`${image.title}. ${image.message}`)
+      } else {
+        setError(raw || 'שמירה נכשלה')
+      }
     } finally {
       setSaving(false)
     }
@@ -734,7 +746,27 @@ export function AdminProductForm() {
       </label>
       <label>
         העלאת תמונה
-        <input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={(event) => {
+            const next = event.target.files?.[0] ?? null
+            setError('')
+            if (!next) {
+              setFile(null)
+              return
+            }
+            try {
+              validateProductImageFile(next)
+              setFile(next)
+            } catch (reason) {
+              setFile(null)
+              event.target.value = ''
+              const view = productImageErrorView(reason)
+              setError(`${view.title}. ${view.message}`)
+            }
+          }}
+        />
       </label>
       <label className="check">
         <input type="checkbox" checked={form.active} onChange={(event) => set('active', event.target.checked)} />

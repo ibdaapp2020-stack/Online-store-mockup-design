@@ -14,6 +14,7 @@ import {
   settingsFrom,
   uploadImage,
 } from './core'
+import { productImagePath } from '../firebase/storage'
 import { findStoreOrder } from './orders'
 import { emailAdminFetch, notifyOrderStatus, notifyStockChange } from '../notify'
 import type { Badge, Product } from '../../types'
@@ -156,7 +157,7 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     if (await getProduct(id)) fail('המזהה כבר קיים')
     let image = String(raw.image || '')
     const file = init?.body instanceof FormData ? init.body.get('imageFile') : null
-    if (file instanceof File && file.size) image = await uploadImage(`products/${id}/${file.name}`, file)
+    if (file instanceof File && file.size) image = await uploadImage(productImagePath(id, file.name), file)
     const product = await productFromForm(raw, image, id)
     if (!product.name || !product.category || !Number.isFinite(product.price) || !Number.isInteger(product.stock)) {
       fail('חובה למלא שם, קטגוריה, מחיר וכמות')
@@ -173,7 +174,7 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     const raw = await bodyOf(init)
     let image = String(raw.image || current.image || '')
     const file = init?.body instanceof FormData ? init.body.get('imageFile') : null
-    if (file instanceof File && file.size) image = await uploadImage(`products/${parts[3]}/${file.name}`, file)
+    if (file instanceof File && file.size) image = await uploadImage(productImagePath(parts[3], file.name), file)
     const product = await productFromForm(raw, image, parts[3])
     if (!product.name || !product.category || !Number.isFinite(product.price) || !Number.isInteger(product.stock)) {
       fail('חובה למלא שם, קטגוריה, מחיר וכמות')

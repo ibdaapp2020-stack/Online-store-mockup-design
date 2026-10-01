@@ -11,25 +11,33 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
     }
 
+    function productImage() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
     match /products/{productId}/{fileName} {
       allow read: if true;
-      allow write: if isAdmin()
-        && request.resource.size < 6 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+      allow create, update: if isAdmin() && productImage();
+      allow delete: if isAdmin();
     }
 
     match /categories/{categoryId}/{fileName} {
       allow read: if true;
-      allow write: if isAdmin()
-        && request.resource.size < 6 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+      allow create, update: if isAdmin() && productImage();
+      allow delete: if isAdmin();
     }
 
     match /branding/{fileName} {
       allow read: if true;
-      allow write: if isAdmin()
-        && request.resource.size < 6 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+      allow create, update: if isAdmin() && productImage();
+      allow delete: if isAdmin();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -11,9 +11,8 @@ import {
   writeBatch,
   type DocumentData,
 } from 'firebase/firestore'
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import { getFirebaseDb } from '../firebase/config'
-import { getFirebaseStorage } from '../firebase/storage'
+import { uploadProductImage } from '../firebase/storage'
 import type { Category, Order, Product, ShopSettings } from '../../types'
 
 export function db() {
@@ -156,15 +155,8 @@ export async function removeProduct(id: string) {
   return { archived: false }
 }
 
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-const MAX_IMAGE = 5 * 1024 * 1024
-
 export async function uploadImage(path: string, file: File) {
-  if (!IMAGE_TYPES.includes(file.type)) throw new Error('סוג הקובץ לא נתמך. השתמשו ב-JPG, PNG או WebP')
-  if (file.size > MAX_IMAGE) throw new Error('הקובץ גדול מדי. המקסימום הוא 5MB')
-  const stored = ref(getFirebaseStorage(), path)
-  await uploadBytes(stored, file, { contentType: file.type })
-  return getDownloadURL(stored)
+  return uploadProductImage(path, file)
 }
 
 export async function listOrders() {
