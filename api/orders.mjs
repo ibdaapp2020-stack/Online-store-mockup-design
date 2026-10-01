@@ -14,10 +14,16 @@ async function createOrder(req, res) {
     res.status(201).json(order)
   } catch (error) {
     const raw = error instanceof Error ? error.message : ''
+    const code = String(error?.code || '')
     const denied = raw.toLowerCase().includes('permission')
     const status = Number(error?.httpStatus) || (denied ? 503 : 502)
+    const message = denied
+      ? 'לא הצלחנו לשמור את ההזמנה. לא בוצע חיוב.'
+      : raw || 'לא ניתן לקלוט את ההזמנה'
+    console.error('ORDER_API_ERROR', code || 'ORDER_SAVE_FAILED', status)
     res.status(status).json({
-      error: denied ? 'לא הצלחנו להשלים את ההזמנה. לא בוצע חיוב.' : raw || 'לא ניתן לקלוט את ההזמנה',
+      error: message,
+      code: code || (denied ? 'ORDER_SAVE_FAILED' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'ORDER_SAVE_FAILED'),
     })
   }
 }

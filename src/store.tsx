@@ -8,7 +8,7 @@ import { firebaseEnvError } from './lib/firebase/config'
 import { categoryFrom, db, getSettings, listCategories, listProducts, productFrom, settingsFrom } from './lib/data/core'
 import { accountFetch } from './lib/data/http'
 import { httpError } from './lib/checkout-errors'
-import { findStoreOrder, placeStoreOrder } from './lib/data/orders'
+import { findStoreOrder } from './lib/data/orders'
 import { notifyOrderCreated } from './lib/notify'
 
 
@@ -295,16 +295,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }).catch((reason) => {
       throw Object.assign(reason instanceof Error ? reason : new Error('Failed to fetch'), { httpStatus: 0 })
     })
-    if (response.status === 404) {
-      const data = await placeStoreOrder(customer, items, coupon)
-      order = data.order
-      stockAfter = data.stockAfter
-    } else if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as { error?: string }
-      throw httpError(response.status, payload.error || 'לא ניתן לקלוט את ההזמנה')
-    } else {
-      order = (await response.json()) as Order
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; code?: string }
+      throw Object.assign(httpError(response.status, payload.error || 'לא ניתן לקלוט את ההזמנה'), { code: payload.code })
     }
+    order = (await response.json()) as Order
     setRecentOrders((prev) => [order, ...prev.filter((item) => item.id !== order.id)])
     setCart([])
     setCoupon(null)

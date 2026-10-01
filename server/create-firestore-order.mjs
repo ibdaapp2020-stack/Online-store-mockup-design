@@ -27,13 +27,25 @@ function db() {
 async function signInPrivileged() {
   const auth = getAuth(app())
   if (auth.currentUser) return auth.currentUser
-  const email = process.env.FIREBASE_ADMIN_EMAIL || ''
+  const email = process.env.FIREBASE_ADMIN_EMAIL || process.env.PROPHARM_ADMIN_EMAIL || ''
   const password = process.env.FIREBASE_ADMIN_PASSWORD || ''
   if (!email || !password) {
-    throw Object.assign(new Error('לא הצלחנו להשלים את ההזמנה. לא בוצע חיוב.'), { httpStatus: 503 })
+    console.error('ORDER_ERROR_CODE=MISSING_SERVER_AUTH')
+    throw Object.assign(new Error('לא הצלחנו לשמור את ההזמנה. לא בוצע חיוב.'), {
+      httpStatus: 503,
+      code: 'MISSING_SERVER_AUTH',
+    })
   }
-  const cred = await signInWithEmailAndPassword(auth, email, password)
-  return cred.user
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, password)
+    return cred.user
+  } catch (reason) {
+    console.error('ORDER_ERROR_CODE=SERVER_AUTH_FAILED')
+    throw Object.assign(new Error('שירות ההזמנות אינו זמין כרגע. נסו שוב בעוד מספר רגעים.'), {
+      httpStatus: 503,
+      code: 'SERVER_AUTH_FAILED',
+    })
+  }
 }
 
 function customerKey(customer) {
@@ -85,15 +97,16 @@ export async function createFirestoreOrder({ customer, items, coupon }) {
       }
       if (stock < qty) throw Object.assign(new Error(`אין מספיק מלאי עבור ${product.name}`), { httpStatus: 400 })
       tx.update(productRef, { stock: stock - qty, updatedAt: new Date().toISOString() })
-      built.push({
+      const item = {
         productId: snap.id,
         name: product.name,
         price: Number(product.price) || 0,
         qty,
-        size: line.size,
-        color: line.color,
-        other: line.other,
-      })
+      }
+      if (line.size) item.size = line.size
+      if (line.color) item.color = line.color
+      if (line.other) item.other = line.other
+      built.push(item)
     }
     const subtotal = built.reduce((sum, item) => sum + item.price * item.qty, 0)
     const discount = couponOn ? Math.round(subtotal * (couponPercent / 100)) : 0
@@ -108,8 +121,8 @@ export async function createFirestoreOrder({ customer, items, coupon }) {
       discount,
       shipping,
       total: subtotal - discount + shipping,
-      coupon: couponOn ? couponCode : undefined,
     }
+    if (couponOn) created.coupon = couponCode
     tx.set(doc(firestore, 'orders', orderId), created)
     tx.set(counterRef, { lastOrder: last + 1 }, { merge: true })
     return created
