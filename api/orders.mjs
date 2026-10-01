@@ -13,8 +13,12 @@ async function createOrder(req, res) {
     })
     res.status(201).json(order)
   } catch (error) {
-    const status = Number(error?.httpStatus) || (String(error?.message || '').includes('permission') ? 403 : 502)
-    res.status(status).json({ error: error instanceof Error ? error.message : 'לא ניתן לקלוט את ההזמנה' })
+    const raw = error instanceof Error ? error.message : ''
+    const denied = raw.toLowerCase().includes('permission')
+    const status = Number(error?.httpStatus) || (denied ? 503 : 502)
+    res.status(status).json({
+      error: denied ? 'לא הצלחנו להשלים את ההזמנה. לא בוצע חיוב.' : raw || 'לא ניתן לקלוט את ההזמנה',
+    })
   }
 }
 

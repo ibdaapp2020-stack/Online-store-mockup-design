@@ -59,17 +59,8 @@ function categoryFrom(id, data) {
 
 export async function loadPublicCatalog() {
   const db = catalogDb()
-  let productSnap
-  try {
-    productSnap = await getDocs(query(collection(db, 'products'), where('active', '==', true)))
-  } catch {
-    productSnap = await getDocs(collection(db, 'products'))
-  }
-  let products = productSnap.docs.map((item) => productFrom(item.id, item.data())).filter((item) => item.active !== false)
-  if (!products.length) {
-    const all = await getDocs(collection(db, 'products'))
-    products = all.docs.map((item) => productFrom(item.id, item.data())).filter((item) => item.active !== false)
-  }
+  const productSnap = await getDocs(query(collection(db, 'products'), where('active', '==', true)))
+  const products = productSnap.docs.map((item) => productFrom(item.id, item.data())).filter((item) => item.active !== false)
   const categorySnap = await getDocs(collection(db, 'categories'))
   const categories = categorySnap.docs
     .map((item) => categoryFrom(item.id, item.data()))
