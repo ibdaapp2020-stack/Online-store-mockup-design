@@ -27,7 +27,7 @@ function productFrom(id, data) {
   return {
     id,
     name: String(data.name || ''),
-    category: String(data.category || ''),
+    category: String(data.categoryId || data.category || ''),
     price: Number(data.price) || 0,
     compareAt: data.compareAt == null ? undefined : Number(data.compareAt),
     description: String(data.description || ''),

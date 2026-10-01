@@ -1,13 +1,13 @@
 import { Component, FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import { currentUser, resetPassword, watchAuth } from '../lib/data/auth'
-import { preferStoredImage, readLiveCatalog, snapshotAdminCatalog } from '../catalog-sync'
+import { snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
 import { watchAdminOrders } from '../lib/data/admin-live'
 import { productImageErrorView, validateProductImageFile } from '../lib/image-errors'
 import { emailAdminFetch } from '../lib/notify'
 import { storeUrl } from '../lib/surface'
-import { CATEGORIES, STATUS_LABEL } from '../data'
+import { STATUS_LABEL } from '../data'
 import { money } from '../pricing'
 import { useStore } from '../store'
 import type { Order, OrderStatus, Product, ShopSettings } from '../types'
@@ -353,7 +353,7 @@ export function AdminDashboard() {
 export function AdminProducts() {
   const { refreshCatalog, categories: storeCategories } = useStore()
   const [products, setProducts] = useState<Product[]>([])
-  const [categoryNames, setCategoryNames] = useState<Array<{ id: string; name: string }>>(CATEGORIES)
+  const [categoryNames, setCategoryNames] = useState<Array<{ id: string; name: string }>>([])
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
   const [visibility, setVisibility] = useState('all')
@@ -363,24 +363,19 @@ export function AdminProducts() {
 
   useEffect(() => {
     void adminFetch<Product[]>('/api/admin/products')
-      .then((rows) => {
-        const live = readLiveCatalog()
-        if (!live?.products.length) {
-          setProducts(rows)
-          return
-        }
-        const apiById = new Map(rows.map((product) => [product.id, product]))
-        const merged = new Map<string, Product>()
-        for (const product of live.products) merged.set(product.id, preferStoredImage(product, apiById.get(product.id)))
-        for (const product of rows) if (!merged.has(product.id)) merged.set(product.id, product)
-        setProducts([...merged.values()])
+      .then((rows) => setProducts(rows))
+      .catch((reason: unknown) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את המוצרים. נסו שוב.')
       })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את המוצרים'))
       .finally(() => setLoading(false))
     void adminFetch<Array<{ id: string; name: string }>>('/api/admin/categories')
-      .then((rows) => setCategoryNames(rows.length ? rows : CATEGORIES))
-      .catch(() => setCategoryNames(storeCategories.length ? storeCategories : CATEGORIES))
-  }, [storeCategories])
+      .then((rows) => setCategoryNames(rows))
+      .catch((reason) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את הקטגוריות. נסו שוב.')
+      })
+  }, [])
 
   async function remove(id: string) {
     if (!window.confirm('למחוק את המוצר?')) return
@@ -393,9 +388,9 @@ export function AdminProducts() {
   const names = new Map<string, string>()
   for (const item of categoryNames) names.set(item.id, item.name)
   for (const item of storeCategories) names.set(item.id, item.name)
-  const categoryOptions = [...new Set(products.map((product) => product.category))].map((id) => ({
-    id,
-    name: names.get(id) || id,
+  const categoryOptions = categoryNames.map((item) => ({
+    id: item.id,
+    name: names.get(item.id) || item.name,
   }))
   const needle = query.trim().toLowerCase()
   const visible = products.filter((product) => {
@@ -552,8 +547,11 @@ export function AdminProductForm() {
 
   useEffect(() => {
     void adminFetch<Array<{ id: string; name: string }>>('/api/admin/categories')
-      .then((rows) => setCategories(rows.length ? rows : CATEGORIES))
-      .catch(() => setCategories(CATEGORIES))
+      .then((rows) => setCategories(rows))
+      .catch((reason) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את הקטגוריות. נסו שוב.')
+      })
   }, [])
 
   useEffect(() => {

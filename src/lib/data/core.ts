@@ -27,7 +27,7 @@ export function productFrom(id: string, data: DocumentData): Product {
   return {
     id,
     name: String(data.name || ''),
-    category: String(data.category || ''),
+    category: String(data.categoryId || data.category || ''),
     price: Number(data.price) || 0,
     compareAt: data.compareAt == null ? undefined : Number(data.compareAt),
     description: String(data.description || ''),
@@ -128,6 +128,7 @@ export async function saveProduct(product: Product) {
     compareAt: product.compareAt ?? null,
     badge: product.badge ?? null,
     images: product.image ? [product.image] : [],
+    categoryId: product.category,
     updatedAt: new Date().toISOString(),
   })
   await setDoc(doc(db(), 'products', product.id), payload, { merge: true })

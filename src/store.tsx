@@ -103,27 +103,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function refreshCatalogFromApi() {
-    const response = await fetch('/api/catalog')
-    if (!response.ok) throw new Error('לא ניתן לטעון את החנות')
-    const data = (await response.json()) as { products: Product[]; categories: Category[]; settings: ShopSettings }
-    applyCatalog(data.products, data.categories, data.settings)
-    setReady(true)
-  }
-
   async function refreshCatalog() {
     const missing = firebaseEnvError()
     if (missing) throw new Error(`FIREBASE_CONFIG_MISSING:\n${missing.missing.join('\n')}`)
-    try {
-      const [nextProducts, nextCategories, nextSettings] = await Promise.all([listProducts(true), listCategories(), getSettings()])
-      if (nextProducts.length) {
-        applyCatalog(nextProducts, nextCategories, nextSettings)
-        return
-      }
-    } catch {
-      /* Firestore empty or denied — use SQLite API until migration lands */
-    }
-    await refreshCatalogFromApi()
+    const [nextProducts, nextCategories, nextSettings] = await Promise.all([listProducts(true), listCategories(), getSettings()])
+    applyCatalog(
+      nextProducts,
+      nextCategories.filter((item) => item.active !== false),
+      nextSettings,
+    )
+    setReady(true)
+    setError('')
   }
 
   useEffect(() => {
@@ -134,13 +124,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return
     }
     const applyProductRows = (rows: Product[]) => {
-      if (!rows.length) {
-        void refreshCatalogFromApi().catch((reason) => {
-          setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את החנות')
-          setReady(true)
-        })
-        return
-      }
       setProducts(rows)
       setCart((current) => {
         const stored = current.length ? current : readJson<CartLine[]>(CART_KEY) ?? []
@@ -154,16 +137,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       (snap) => {
         applyProductRows(snap.docs.map((item) => productFrom(item.id, item.data())).filter((product) => product.active !== false))
       },
-      () => {
-        void refreshCatalogFromApi().catch((reason) => {
-          setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את החנות')
-          setReady(true)
-        })
+      (reason) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את המוצרים. נסו שוב.')
+        setReady(true)
       },
     )
-    const unsubCategories = onSnapshot(collection(db(), 'categories'), (snap) => {
-      setCategories(snap.docs.map((item) => categoryFrom(item.id, item.data())).sort((a, b) => a.sort - b.sort))
-    })
+    const unsubCategories = onSnapshot(
+      collection(db(), 'categories'),
+      (snap) => {
+        setCategories(
+          snap.docs
+            .map((item) => categoryFrom(item.id, item.data()))
+            .filter((item) => item.active !== false)
+            .sort((a, b) => a.sort - b.sort),
+        )
+      },
+      (reason) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את הקטגוריות. נסו שוב.')
+      },
+    )
     const unsubSettings = onSnapshot(doc(db(), 'settings', 'store'), (snap) => {
       setSettings(settingsFrom(snap.data()))
     })

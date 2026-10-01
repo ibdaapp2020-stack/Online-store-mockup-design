@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
-import { watchAdminAppointments, watchAdminCustomers, watchAdminServices } from '../lib/data/admin-live'
+import { watchAdminAppointments, watchAdminCategories, watchAdminCustomers, watchAdminServices } from '../lib/data/admin-live'
 import { formatDate, money } from '../pricing'
 
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
@@ -529,18 +529,20 @@ export function AdminCategories() {
   const [name, setName] = useState('')
   const [blurb, setBlurb] = useState('')
   const [saving, setSaving] = useState(false)
-
-  async function load() {
-    try {
-      setCategories(await adminFetch<ShopCategory[]>('/api/admin/categories'))
-    } catch (reason) {
-      console.error(reason)
-      setError('לא הצלחנו לטעון את הקטגוריות. נסו שוב.')
-    }
-  }
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    void load()
+    return watchAdminCategories(
+      (rows) => {
+        setCategories(rows)
+        setLoading(false)
+      },
+      (reason) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את הקטגוריות. נסו שוב.')
+        setLoading(false)
+      },
+    )
   }, [])
 
   async function create(event: FormEvent<HTMLFormElement>) {
@@ -565,7 +567,6 @@ export function AdminCategories() {
       setBlurb('')
       setMessage('הקטגוריה נוספה בהצלחה')
       await snapshotAdminCatalog()
-      await load()
     } catch (reason) {
       setError(categoryFormError(reason))
     } finally {
@@ -592,6 +593,8 @@ export function AdminCategories() {
           {saving ? 'שומר...' : 'הוספת קטגוריה'}
         </button>
       </form>
+      {loading ? <p className="muted">טוען קטגוריות...</p> : null}
+      {!loading && !error && categories.length === 0 ? <p>עדיין אין קטגוריות.</p> : null}
       <div className="admin-table">
         {categories.map((category) => (
           <article key={category.id}>
@@ -610,7 +613,7 @@ export function AdminCategories() {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ name, blurb: category.blurb }),
                 })
-                  .then(() => snapshotAdminCatalog().then(load))
+                  .then(() => snapshotAdminCatalog())
                   .then(() => {
                     setMessage('הקטגוריה עודכנה בהצלחה')
                     setError('')
@@ -626,7 +629,7 @@ export function AdminCategories() {
               onClick={() => {
                 if (!window.confirm('למחוק את הקטגוריה?')) return
                 void adminFetch(`/api/admin/categories/${category.id}`, { method: 'DELETE' })
-                  .then(() => snapshotAdminCatalog().then(load))
+                  .then(() => snapshotAdminCatalog())
                   .catch((reason) => setError(categoryFormError(reason)))
               }}
             >

@@ -16,7 +16,7 @@ const COVER: Record<string, string> = {
 
 export function HomePage() {
   useTitle('בית')
-  const { products, categories, ready } = useStore()
+  const { products, categories, ready, error } = useStore()
   const [more, setMore] = useState(false)
   const newest = products.slice(0, 4)
   const best = [...products.filter((product) => product.badge === 'popular')].sort((a, b) => b.reviews - a.reviews).slice(0, 4)
@@ -83,13 +83,16 @@ export function HomePage() {
           <h2>קטגוריות</h2>
         </div>
         <div className="cat-showcase">
+          {!ready ? <p className="muted">טוען קטגוריות...</p> : null}
+          {error ? <p className="form-errors">{error}</p> : null}
+          {ready && !error && categories.length === 0 ? <p className="muted">עדיין אין קטגוריות.</p> : null}
           {shown.map((category) => (
             <Link key={category.id} className="cat-tile" to={`/catalog?cat=${category.id}`}>
               <img src={cover(category.id)} alt="" />
               <strong>{category.name}</strong>
             </Link>
           ))}
-          {more ? null : (
+          {more || categories.length <= 5 ? null : (
             <button type="button" className="cat-tile cat-more" onClick={() => setMore(true)}>
               עוד
             </button>

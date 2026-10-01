@@ -71,6 +71,29 @@ export function watchAdminServices(onData: (rows: ReturnType<typeof serviceFrom>
   )
 }
 
+export function watchAdminCategories(onData: (rows: Array<{ id: string; name: string; blurb: string; sort: number; active?: boolean }>) => void, onError: (error: Error) => void) {
+  return onSnapshot(
+    collection(db(), 'categories'),
+    (snap) => {
+      onData(
+        snap.docs
+          .map((item) => {
+            const data = item.data()
+            return {
+              id: item.id,
+              name: String(data.name || ''),
+              blurb: String(data.blurb || ''),
+              sort: Number(data.sort) || 0,
+              active: data.active !== false,
+            }
+          })
+          .sort((a, b) => a.sort - b.sort),
+      )
+    },
+    (error) => onError(error instanceof Error ? error : new Error('categories')),
+  )
+}
+
 export function watchAdminAppointments(onData: (rows: Array<Record<string, unknown>>) => void, onError: (error: Error) => void) {
   return onSnapshot(
     collection(db(), 'appointments'),
