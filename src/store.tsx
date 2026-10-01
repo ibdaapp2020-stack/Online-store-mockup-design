@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { collection, doc, onSnapshot } from 'firebase/firestore'
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore'
 import { quote, type Quote } from './pricing'
 import type { CartLine, Category, Customer, Order, Product, ShopSettings } from './types'
 import { optionStock } from './types'
@@ -132,8 +132,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setReady(true)
       return
     }
-    const unsubProducts = onSnapshot(collection(db(), 'products'), (snap) => {
-      const rows = snap.docs.map((item) => productFrom(item.id, item.data())).filter((product) => product.active !== false)
+    const applyProductRows = (rows: Product[]) => {
       if (!rows.length) {
         void refreshCatalogFromApi().catch((reason) => {
           setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את החנות')
@@ -148,12 +147,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
       setReady(true)
       setError('')
-    }, () => {
-      void refreshCatalogFromApi().catch((reason) => {
-        setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את החנות')
-        setReady(true)
-      })
-    })
+    }
+    const unsubProducts = onSnapshot(
+      query(collection(db(), 'products'), where('active', '==', true)),
+      (snap) => {
+        applyProductRows(snap.docs.map((item) => productFrom(item.id, item.data())).filter((product) => product.active !== false))
+      },
+      () => {
+        void refreshCatalogFromApi().catch((reason) => {
+          setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את החנות')
+          setReady(true)
+        })
+      },
+    )
     const unsubCategories = onSnapshot(collection(db(), 'categories'), (snap) => {
       setCategories(snap.docs.map((item) => categoryFrom(item.id, item.data())).sort((a, b) => a.sort - b.sort))
     })

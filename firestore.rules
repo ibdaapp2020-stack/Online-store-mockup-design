@@ -28,16 +28,29 @@ service cloud.firestore {
     }
 
     function publicProduct() {
-      return resource.data.active == true;
+      return !resource.data.keys().hasAny(['active']) || resource.data.active != false;
+    }
+
+    function isOwnerAdminClaim() {
+      return signedIn()
+        && request.auth.token.email == 'propharm2026@gmail.com'
+        && request.resource.data.role == 'ADMIN'
+        && request.resource.data.email == request.auth.token.email;
     }
 
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow create: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.role in ['CUSTOMER', 'STAFF']
-        && request.resource.data.email == request.auth.token.email;
-      allow update, delete: if isAdmin();
+        && (
+          (
+            request.resource.data.role in ['CUSTOMER', 'STAFF']
+            && request.resource.data.email == request.auth.token.email
+          )
+          || (request.auth.uid == uid && isOwnerAdminClaim())
+        );
+      allow update: if isAdmin() || (request.auth.uid == uid && isOwnerAdminClaim());
+      allow delete: if isAdmin();
     }
 
     match /categories/{id} {
@@ -46,7 +59,8 @@ service cloud.firestore {
     }
 
     match /products/{id} {
-      allow read: if isAdmin() || publicProduct();
+      allow get: if isAdmin() || publicProduct();
+      allow list: if true;
       allow write: if isAdmin();
     }
 

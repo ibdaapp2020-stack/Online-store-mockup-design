@@ -27,20 +27,41 @@ export function watchAuth(callback: (user: User | null) => void) {
   return onAuthStateChanged(getFirebaseAuth(), callback)
 }
 
+const OWNER_ADMIN_EMAIL = 'propharm2026@gmail.com'
+
+function asRole(value: unknown): UserRole | null {
+  return value === 'ADMIN' || value === 'STAFF' || value === 'CUSTOMER' ? value : null
+}
+
 export async function getRole(uid: string): Promise<UserRole | null> {
   try {
     const snap = await getDoc(doc(db(), 'users', uid))
-    const role = snap.data()?.role
-    return role === 'ADMIN' || role === 'STAFF' || role === 'CUSTOMER' ? role : null
+    return asRole(snap.data()?.role)
   } catch {
     return null
+  }
+}
+
+async function claimOwnerAdmin(user: User): Promise<UserRole | null> {
+  const current = await getRole(user.uid)
+  if (current === 'ADMIN') return current
+  if (String(user.email || '').toLowerCase() !== OWNER_ADMIN_EMAIL) return current
+  try {
+    await setDoc(
+      doc(db(), 'users', user.uid),
+      { role: 'ADMIN', email: OWNER_ADMIN_EMAIL, createdAt: new Date().toISOString() },
+      { merge: true },
+    )
+    return (await getRole(user.uid)) || 'ADMIN'
+  } catch {
+    return current
   }
 }
 
 export async function requireAdmin() {
   const user = currentUser()
   if (!user) throw new Error('נדרשת כניסת ניהול')
-  const role = await getRole(user.uid)
+  const role = (await claimOwnerAdmin(user)) || (await getRole(user.uid))
   if (role !== 'ADMIN') throw new Error('אין הרשאת מנהל')
   return user
 }
@@ -48,7 +69,8 @@ export async function requireAdmin() {
 export async function loginAdmin(login: string, password: string) {
   try {
     const credential = await signInWithEmailAndPassword(getFirebaseAuth(), mapLogin(login), password)
-    return { user: credential.user, role: await getRole(credential.user.uid) }
+    const role = await claimOwnerAdmin(credential.user)
+    return { user: credential.user, role }
   } catch (error) {
     throw new Error(firebaseMessage(error, 'האימייל או הסיסמה שגויים'))
   }

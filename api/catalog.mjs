@@ -1,29 +1,20 @@
 import express from 'express'
-import { loadEnv } from '../db.mjs'
-import { loadPublicCatalog } from '../catalog-public.mjs'
-import { registerEmailRoutes } from './routes.mjs'
-
-loadEnv()
+import { loadPublicCatalog } from '../server/catalog-public.mjs'
 
 const app = express()
-app.use(express.json({ limit: '2mb' }))
 
 async function sendCatalog(_req, res) {
   try {
     const data = await loadPublicCatalog()
     res.setHeader('Cache-Control', 'no-store, max-age=0')
-    res.json(data)
+    res.status(200).json(data)
   } catch (error) {
     res.status(502).json({ error: error instanceof Error ? error.message : 'לא ניתן לטעון את החנות' })
   }
 }
 
-app.get('/api/catalog', sendCatalog)
+app.get('/', sendCatalog)
 app.get('/catalog', sendCatalog)
-registerEmailRoutes(app, {
-  requireAdmin(_req, res) {
-    return res.status(401).json({ error: 'נדרשת כניסת ניהול' })
-  },
-})
+app.get('/api/catalog', sendCatalog)
 
 export default app
