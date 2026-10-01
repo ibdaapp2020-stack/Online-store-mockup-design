@@ -1,6 +1,6 @@
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import { getFirebaseAuth, getFirebaseStorage } from './config'
-import { productImageErrorView, sanitizeImageName, validateProductImageFile } from '../image-errors'
+import { imageContentType, productImageErrorView, sanitizeImageName, validateProductImageFile } from '../image-errors'
 
 export { getFirebaseStorage as storage, getFirebaseStorage }
 
@@ -12,7 +12,13 @@ export async function uploadProductImage(path: string, file: File) {
   validateProductImageFile(file)
   const user = getFirebaseAuth().currentUser
   if (import.meta.env.DEV) {
-    console.info('product image upload', { uid: user?.uid || null, email: user?.email || null, path })
+    console.info('product image upload', {
+      uid: user?.uid || null,
+      email: user?.email || null,
+      emailVerified: user?.emailVerified ?? null,
+      path,
+      contentType: imageContentType(file),
+    })
   }
   if (!user) {
     console.error('product image upload: not signed in')
@@ -20,7 +26,7 @@ export async function uploadProductImage(path: string, file: File) {
   }
   try {
     const stored = ref(getFirebaseStorage(), path)
-    await uploadBytes(stored, file, { contentType: file.type })
+    await uploadBytes(stored, file, { contentType: imageContentType(file) })
     return await getDownloadURL(stored)
   } catch (reason) {
     console.error('product image upload failed', reason)
