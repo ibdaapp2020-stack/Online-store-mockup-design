@@ -750,7 +750,7 @@ export function AdminProductForm() {
         העלאת תמונה
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,image/gif"
           onChange={(event) => {
             const next = event.target.files?.[0] ?? null
             setError('')

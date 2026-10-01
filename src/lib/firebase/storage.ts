@@ -11,6 +11,9 @@ export function productImagePath(productId: string, fileName: string) {
 export async function uploadProductImage(path: string, file: File) {
   validateProductImageFile(file)
   const user = getFirebaseAuth().currentUser
+  if (import.meta.env.DEV) {
+    console.info('product image upload', { uid: user?.uid || null, email: user?.email || null, path })
+  }
   if (!user) {
     console.error('product image upload: not signed in')
     throw Object.assign(new Error(productImageErrorView({ code: 'auth' }).message), { code: 'auth' })
