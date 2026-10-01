@@ -49,3 +49,32 @@ export function watchAdminCustomers(onData: (members: Array<Record<string, unkno
     stopCustomers()
   }
 }
+
+function serviceFrom(id: string, data: Record<string, unknown>) {
+  return {
+    id: String(data.id || id),
+    name: String(data.name || data.title || ''),
+    days: Array.isArray(data.days) ? data.days.map(Number) : [0, 1, 2, 3, 4],
+    openTime: String(data.openTime || data.open_time || '09:00'),
+    closeTime: String(data.closeTime || data.close_time || '17:00'),
+    slotMinutes: Number(data.slotMinutes || data.slot_minutes) || 30,
+    therapist: String(data.therapist || data.provider || ''),
+    active: data.active !== false,
+  }
+}
+
+export function watchAdminServices(onData: (rows: ReturnType<typeof serviceFrom>[]) => void, onError: (error: Error) => void) {
+  return onSnapshot(
+    collection(db(), 'services'),
+    (snap) => onData(snap.docs.map((item) => serviceFrom(item.id, item.data()))),
+    (error) => onError(error instanceof Error ? error : new Error('services')),
+  )
+}
+
+export function watchAdminAppointments(onData: (rows: Array<Record<string, unknown>>) => void, onError: (error: Error) => void) {
+  return onSnapshot(
+    collection(db(), 'appointments'),
+    (snap) => onData(snap.docs.map((item) => ({ id: item.id, ...item.data() }))),
+    (error) => onError(error instanceof Error ? error : new Error('appointments')),
+  )
+}

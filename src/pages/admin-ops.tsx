@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
-import { watchAdminCustomers } from '../lib/data/admin-live'
+import { watchAdminAppointments, watchAdminCustomers, watchAdminServices } from '../lib/data/admin-live'
 import { formatDate, money } from '../pricing'
 
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
@@ -75,53 +75,99 @@ function hoursLabel(minutes: number) {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }
 
+function serviceSaveError(reason: unknown) {
+  console.error(reason)
+  const text = reason instanceof Error ? reason.message : ''
+  if (/חסר שם|יש לבחור|לא נמצא/.test(text)) return text
+  return 'לא הצלחנו להשלים את הפעולה. נסו שוב.'
+}
+
+function ServiceSelect({ services, loading }: { services: Service[]; loading: boolean }) {
+  if (loading) return <p className="muted">טוען שירותים...</p>
+  if (!services.length) {
+    return (
+      <>
+        <select name="serviceId" required disabled>
+          <option value="">אין שירותים זמינים</option>
+        </select>
+        <p className="muted">אין שירותים זמינים. יש להוסיף שירות תחילה.</p>
+      </>
+    )
+  }
+  return (
+    <select name="serviceId" required defaultValue={services[0].id}>
+      {services.map((service) => (
+        <option key={service.id} value={service.id}>
+          {service.name}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 export function AdminServices() {
   const [services, setServices] = useState<Service[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [loadingServices, setLoadingServices] = useState(true)
   const [day, setDay] = useState(() => new Date().toLocaleDateString('en-CA'))
 
-  async function load() {
-    try {
-      const [nextServices, nextAppointments] = await Promise.all([
-        adminFetch<Service[]>('/api/admin/services'),
-        adminFetch<Appointment[]>('/api/admin/appointments'),
-      ])
-      setServices(Array.isArray(nextServices) ? nextServices : [])
-      setAppointments(Array.isArray(nextAppointments) ? nextAppointments : [])
-      setError('')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון את התורים')
-    }
-  }
-
   useEffect(() => {
-    void load()
+    const stopServices = watchAdminServices(
+      (rows) => {
+        setServices(rows)
+        setLoadingServices(false)
+      },
+      (reason) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את השירותים. נסו שוב.')
+        setLoadingServices(false)
+      },
+    )
+    const stopAppointments = watchAdminAppointments(
+      (rows) => setAppointments(rows as Appointment[]),
+      (reason) => {
+        console.error(reason)
+        setError('לא הצלחנו לטעון את התורים. נסו שוב.')
+      },
+    )
+    return () => {
+      stopServices()
+      stopAppointments()
+    }
   }, [])
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    const name = String(data.get('name') || '').trim()
+    if (!name) {
+      setError('חסר שם שירות')
+      return
+    }
     setError('')
-    const form = new FormData(event.currentTarget)
     try {
-      await adminFetch('/api/admin/services', {
+      const created = await adminFetch<Service>('/api/admin/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: form.get('name'),
-          openTime: form.get('openTime'),
-          closeTime: form.get('closeTime'),
-          slotMinutes: Number(form.get('slotMinutes')),
-          therapist: form.get('therapist'),
+          name,
+          openTime: data.get('openTime'),
+          closeTime: data.get('closeTime'),
+          slotMinutes: Number(data.get('slotMinutes')),
+          therapist: data.get('therapist'),
           days,
         }),
       })
-      event.currentTarget.reset()
-      await load()
+      form.reset()
+      setDays([0, 1, 2, 3, 4])
+      setServices((current) => (current.some((item) => item.id === created.id) ? current : [...current, created]))
+      setNotice('השירות נוסף בהצלחה')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
+      setError(serviceSaveError(reason))
     }
   }
 
@@ -166,10 +212,13 @@ export function AdminServices() {
           </label>
         </div>
         {error ? <p className="form-errors">{error}</p> : null}
+        {notice ? <p className="muted">{notice}</p> : null}
         <button className="btn" type="submit">
           הוספת שירות
         </button>
       </form>
+      {loadingServices ? <p className="muted">טוען שירותים...</p> : null}
+      {!loadingServices && services.length === 0 ? <p className="muted">אין שירותים זמינים. יש להוסיף שירות תחילה.</p> : null}
       <div className="admin-table">
         {services.map((service) => (
           <article key={service.id}>
@@ -188,7 +237,7 @@ export function AdminServices() {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ ...service, active: !service.active }),
-                }).then(load)
+                }).catch((reason) => setError(serviceSaveError(reason)))
               }}
             >
               {service.active ? 'הסתרה' : 'הצגה'}
@@ -234,7 +283,7 @@ export function AdminServices() {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ time: shiftTime(item.time, -(service?.slotMinutes || 30)) }),
-                    }).then(load)
+                    }).catch((reason) => setError(serviceSaveError(reason)))
                   }}
                 >
                   שעה קודמת
@@ -248,7 +297,7 @@ export function AdminServices() {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ time: shiftTime(item.time, service?.slotMinutes || 30) }),
-                    }).then(load)
+                    }).catch((reason) => setError(serviceSaveError(reason)))
                   }}
                 >
                   שעה הבאה
@@ -261,7 +310,7 @@ export function AdminServices() {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ status: item.status === 'closed' ? 'booked' : 'closed' }),
-                    }).then(load)
+                    }).catch((reason) => setError(serviceSaveError(reason)))
                   }}
                 >
                   {item.status === 'closed' ? 'פתיחה' : 'סגירה'}
@@ -275,41 +324,39 @@ export function AdminServices() {
         className="panel form"
         onSubmit={(event) => {
           event.preventDefault()
+          const form = event.currentTarget
+          const data = new FormData(form)
+          const serviceId = String(data.get('serviceId') || '')
+          if (!serviceId) {
+            setError('יש לבחור שירות')
+            return
+          }
           setError('')
-          const form = new FormData(event.currentTarget)
           void adminFetch('/api/admin/appointments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              serviceId: form.get('serviceId'),
-              date: form.get('date'),
-              time: form.get('time'),
-              customerName: form.get('customerName'),
-              therapist: form.get('therapist'),
-              phone: form.get('phone'),
-              email: form.get('email'),
-              createCustomer: form.get('createCustomer') === 'on',
+              serviceId,
+              date: data.get('date'),
+              time: data.get('time'),
+              customerName: data.get('customerName'),
+              therapist: data.get('therapist'),
+              phone: data.get('phone'),
+              email: data.get('email'),
+              createCustomer: data.get('createCustomer') === 'on',
             }),
           })
             .then((created) => {
               const password = (created as { createdPassword?: string }).createdPassword
-              event.currentTarget.reset()
-              if (password) setNotice(`הלקוח נוצר. סיסמה זמנית: ${password}`)
-              else setNotice('התור נשמר')
-              return load()
+              form.reset()
+              setNotice(password ? `הלקוח נוצר. סיסמה זמנית: ${password}` : 'התור נשמר')
             })
-            .catch((reason) => setError(reason instanceof Error ? reason.message : 'שמירת התור נכשלה'))
+            .catch((reason) => setError(serviceSaveError(reason)))
         }}
       >
         <label>
           שירות
-          <select name="serviceId" required>
-            {services.map((service) => (
-              <option key={service.id} value={service.id}>
-                {service.name}
-              </option>
-            ))}
-          </select>
+          <ServiceSelect services={services} loading={loadingServices} />
         </label>
         <div className="split-fields">
           <label>
@@ -352,37 +399,36 @@ export function AdminServices() {
         className="panel form"
         onSubmit={(event) => {
           event.preventDefault()
-          const form = new FormData(event.currentTarget)
+          const form = event.currentTarget
+          const data = new FormData(form)
+          const serviceId = String(data.get('serviceId') || '')
+          if (!serviceId) {
+            setError('יש לבחור שירות')
+            return
+          }
           void adminFetch('/api/admin/appointments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              serviceId: form.get('serviceId'),
-              date: form.get('date'),
-              time: form.get('time'),
+              serviceId,
+              date: data.get('date'),
+              time: data.get('time'),
               status: 'closed',
               customerName: 'סגור',
             }),
           })
             .then(() => {
-              event.currentTarget.reset()
+              form.reset()
               setNotice('השעה נסגרה ללקוחות')
-              return load()
             })
-            .catch((reason) => setError(reason instanceof Error ? reason.message : 'סגירת השעה נכשלה'))
+            .catch((reason) => setError(serviceSaveError(reason)))
         }}
       >
         <h2>סגירת שעה</h2>
         <p className="muted">השעה נתפסת ולא תופיע ללקוחות. אפשר לפתוח אותה שוב מהיומן.</p>
         <label>
           שירות
-          <select name="serviceId" required>
-            {services.map((service) => (
-              <option key={service.id} value={service.id}>
-                {service.name}
-              </option>
-            ))}
-          </select>
+          <ServiceSelect services={services} loading={loadingServices} />
         </label>
         <div className="split-fields">
           <label>
@@ -420,7 +466,7 @@ export function AdminServices() {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ date: event.target.value }),
-                  }).then(load)
+                  }).catch((reason) => setError(serviceSaveError(reason)))
                 }}
               />
               <input
@@ -431,7 +477,7 @@ export function AdminServices() {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ time: event.target.value }),
-                  }).then(load)
+                  }).catch((reason) => setError(serviceSaveError(reason)))
                 }}
               />
             </div>
@@ -442,7 +488,7 @@ export function AdminServices() {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ status: event.target.value }),
-                }).then(load)
+                }).catch((reason) => setError(serviceSaveError(reason)))
               }}
             >
               <option value="booked">נקבע</option>
@@ -455,7 +501,7 @@ export function AdminServices() {
               className="text-btn"
               onClick={() => {
                 if (!window.confirm('למחוק את התור?')) return
-                void adminFetch(`/api/admin/appointments/${item.id}`, { method: 'DELETE' }).then(load)
+                void adminFetch(`/api/admin/appointments/${item.id}`, { method: 'DELETE' }).catch((reason) => setError(serviceSaveError(reason)))
               }}
             >
               מחיקה

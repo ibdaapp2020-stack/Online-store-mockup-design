@@ -248,12 +248,24 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
 
   if (url.pathname === '/api/admin/services' && method === 'GET') {
     const snap = await getDocs(collection(db(), 'services'))
-    return snap.docs.map((item) => ({ id: item.id, ...item.data() })) as T
+    return snap.docs.map((item) => normalizeService(item.id, item.data())) as T
   }
   if (url.pathname === '/api/admin/services' && method === 'POST') {
     const raw = await bodyOf(init)
-    const ref = await addDoc(collection(db(), 'services'), { ...raw, active: true })
-    return { id: ref.id, ...raw, active: true } as T
+    const name = String(raw.name || '').trim()
+    if (!name) fail('חסר שם שירות')
+    const payload = {
+      name,
+      days: Array.isArray(raw.days) ? raw.days.map(Number) : [0, 1, 2, 3, 4],
+      openTime: String(raw.openTime || '09:00'),
+      closeTime: String(raw.closeTime || '17:00'),
+      slotMinutes: Number(raw.slotMinutes) || 30,
+      therapist: String(raw.therapist || ''),
+      active: true,
+    }
+    const ref = await addDoc(collection(db(), 'services'), payload)
+    await setDoc(doc(db(), 'services', ref.id), { id: ref.id }, { merge: true })
+    return normalizeService(ref.id, payload) as T
   }
   if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'services' && parts[3] && method === 'PATCH') {
     const raw = await bodyOf(init)
@@ -271,9 +283,30 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
   }
   if (url.pathname === '/api/admin/appointments' && method === 'POST') {
     const raw = await bodyOf(init)
+    const serviceId = String(raw.serviceId || '').trim()
+    if (!serviceId) fail('יש לבחור שירות')
+    const serviceSnap = await getDoc(doc(db(), 'services', serviceId))
+    if (!serviceSnap.exists()) fail('השירות לא נמצא')
+    const service = normalizeService(serviceSnap.id, serviceSnap.data() || {})
+    const user = currentUser()
+    if (!user) fail('נדרשת כניסה')
     const id = `apt-${Date.now().toString(36)}`
-    await setDoc(doc(db(), 'appointments', id), { id, ...raw, createdAt: new Date().toISOString() })
-    return { id, ...raw } as T
+    const appointment = {
+      id,
+      serviceId: service.id,
+      serviceName: service.name,
+      customerId: user.uid,
+      therapist: String(raw.therapist || service.therapist || ''),
+      customerName: String(raw.customerName || '').trim() || 'סגור',
+      phone: String(raw.phone || ''),
+      email: String(raw.email || ''),
+      date: String(raw.date || ''),
+      time: String(raw.time || ''),
+      status: String(raw.status || 'booked'),
+      createdAt: new Date().toISOString(),
+    }
+    await setDoc(doc(db(), 'appointments', id), appointment)
+    return appointment as T
   }
   if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'appointments' && parts[3] && method === 'PATCH') {
     const raw = await bodyOf(init)
@@ -392,7 +425,7 @@ export async function accountFetch<T>(path: string, init?: RequestInit): Promise
   if (url.pathname === '/api/services') {
     const snap = await getDocs(collection(db(), 'services'))
     return snap.docs
-      .map((item) => ({ id: item.id, ...(item.data() as { active?: boolean }) }))
+      .map((item) => normalizeService(item.id, item.data()))
       .filter((item) => item.active !== false) as T
   }
   if (partsPath(url.pathname, ['api', 'services', '*', 'slots'])) {
@@ -501,3 +534,16 @@ function slotsFor(service: DocumentLike, date: string, taken: Set<string>) {
 }
 
 type DocumentLike = Record<string, unknown>
+
+function normalizeService(id: string, data: DocumentLike) {
+  return {
+    id: String(data.id || id),
+    name: String(data.name || data.title || ''),
+    days: Array.isArray(data.days) ? data.days.map(Number) : [0, 1, 2, 3, 4],
+    openTime: String(data.openTime || data.open_time || '09:00'),
+    closeTime: String(data.closeTime || data.close_time || '17:00'),
+    slotMinutes: Number(data.slotMinutes || data.slot_minutes) || 30,
+    therapist: String(data.therapist || data.provider || ''),
+    active: data.active !== false,
+  }
+}
