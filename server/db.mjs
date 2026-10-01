@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import esbuild from 'esbuild'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const dataDir = join(root, 'data')
+const dataDir = process.env.VERCEL ? join('/tmp', 'propharm-data') : join(root, 'data')
 mkdirSync(dataDir, { recursive: true })
 
 export const db = new DatabaseSync(join(dataDir, 'shop.db'))

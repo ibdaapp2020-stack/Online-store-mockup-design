@@ -1,42 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "services": {
-    "propharm": {
-      "root": ".",
-      "framework": "vite",
-      "installCommand": "npm install",
-      "buildCommand": "npm run build",
-      "outputDirectory": "dist",
-      "rewrites": [
-        { "source": "/(.*)", "destination": "/index.html" }
-      ],
-      "bindings": [
-        {
-          "type": "service",
-          "service": "propharm-api",
-          "format": "url",
-          "env": "MEDICAL_API_URL"
-        }
-      ]
-    },
-    "propharm-api": {
-      "root": ".",
-      "framework": "express",
-      "entrypoint": "server/index.mjs"
-    }
-  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": {
-        "service": "propharm-api"
-      }
-    },
-    {
       "source": "/(.*)",
-      "destination": {
-        "service": "propharm"
-      }
+      "destination": "/index.html"
     }
   ]
 }
