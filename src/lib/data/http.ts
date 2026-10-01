@@ -195,7 +195,9 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     const name = String(raw.name || '').trim()
     if (!name) fail('חסר שם קטגוריה')
     const rows = await listCategories()
+    if (rows.some((row) => row.name.trim() === name)) fail('קטגוריה בשם הזה כבר קיימת')
     const id = slug(name) || `cat-${Date.now().toString(36)}`
+    if (rows.some((row) => row.id === id)) fail('קטגוריה בשם הזה כבר קיימת')
     const sort = rows.reduce((max, row) => Math.max(max, row.sort || 0), -1) + 1
     await saveCategory({ id, name, blurb: String(raw.blurb || name).trim(), sort, active: true })
     return { id, name, blurb: String(raw.blurb || name).trim(), sort } as T

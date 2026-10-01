@@ -469,16 +469,27 @@ export function AdminServices() {
 
 type ShopCategory = { id: string; name: string; blurb: string }
 
+function categoryFormError(reason: unknown) {
+  console.error(reason)
+  const text = reason instanceof Error ? reason.message : ''
+  if (/חסר שם|כבר קיימת|לא נמצאה|יש .+ מוצרים/.test(text)) return text
+  return 'לא הצלחנו לשמור את הקטגוריה. נסו שוב.'
+}
+
 export function AdminCategories() {
   const [categories, setCategories] = useState<ShopCategory[]>([])
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [name, setName] = useState('')
+  const [blurb, setBlurb] = useState('')
+  const [saving, setSaving] = useState(false)
 
   async function load() {
     try {
       setCategories(await adminFetch<ShopCategory[]>('/api/admin/categories'))
-      setError('')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון קטגוריות')
+      console.error(reason)
+      setError('לא הצלחנו לטעון את הקטגוריות. נסו שוב.')
     }
   }
 
@@ -488,19 +499,31 @@ export function AdminCategories() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const nextName = name.trim()
+    const nextBlurb = blurb.trim()
+    if (!nextName) {
+      setMessage('')
+      setError('חסר שם קטגוריה')
+      return
+    }
     setError('')
-    const form = new FormData(event.currentTarget)
+    setMessage('')
+    setSaving(true)
     try {
       await adminFetch('/api/admin/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.get('name'), blurb: form.get('blurb') }),
+        body: JSON.stringify({ name: nextName, blurb: nextBlurb }),
       })
-      event.currentTarget.reset()
+      setName('')
+      setBlurb('')
+      setMessage('הקטגוריה נוספה בהצלחה')
       await snapshotAdminCatalog()
       await load()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
+      setError(categoryFormError(reason))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -511,15 +534,16 @@ export function AdminCategories() {
       <form className="panel form" onSubmit={create}>
         <label>
           שם
-          <input name="name" required />
+          <input name="name" value={name} onChange={(event) => setName(event.target.value)} required />
         </label>
         <label>
           תיאור קצר
-          <input name="blurb" />
+          <input name="blurb" value={blurb} onChange={(event) => setBlurb(event.target.value)} />
         </label>
         {error ? <p className="form-errors">{error}</p> : null}
-        <button className="btn" type="submit">
-          הוספת קטגוריה
+        {message ? <p className="muted">{message}</p> : null}
+        <button className="btn" type="submit" disabled={saving}>
+          {saving ? 'שומר...' : 'הוספת קטגוריה'}
         </button>
       </form>
       <div className="admin-table">
@@ -539,7 +563,13 @@ export function AdminCategories() {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ name, blurb: category.blurb }),
-                }).then(() => snapshotAdminCatalog().then(load))
+                })
+                  .then(() => snapshotAdminCatalog().then(load))
+                  .then(() => {
+                    setMessage('הקטגוריה עודכנה בהצלחה')
+                    setError('')
+                  })
+                  .catch((reason) => setError(categoryFormError(reason)))
               }}
             >
               עריכה
@@ -551,7 +581,7 @@ export function AdminCategories() {
                 if (!window.confirm('למחוק את הקטגוריה?')) return
                 void adminFetch(`/api/admin/categories/${category.id}`, { method: 'DELETE' })
                   .then(() => snapshotAdminCatalog().then(load))
-                  .catch((reason) => setError(reason instanceof Error ? reason.message : 'מחיקה נכשלה'))
+                  .catch((reason) => setError(categoryFormError(reason)))
               }}
             >
               מחיקה
