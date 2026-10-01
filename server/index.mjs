@@ -421,8 +421,11 @@ app.use((error, _req, res, next) => {
   return res.status(400).json({ error: error.message || 'העלאה נכשלה' })
 })
 
-app.listen(5180, '127.0.0.1', () => {
-  console.log('API http://127.0.0.1:5180')
-})
+if (!process.env.VERCEL) {
+  const port = Number(process.env.PORT || 5180)
+  app.listen(port, '127.0.0.1', () => {
+    console.log(`API http://127.0.0.1:${port}`)
+  })
+}
 
 export default app
