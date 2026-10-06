@@ -1,5 +1,5 @@
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore'
-import { currentUser, getRole, loginAccount, loginAdmin, logoutAuth, registerCustomer, requireAdmin } from './auth'
+import { addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore'
+import { currentUser, getRole, loginAccount, loginAdmin, logoutAuth, openStaffAccount, registerCustomer, requireAdmin } from './auth'
 import {
   db,
   getProduct,
@@ -331,30 +331,36 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
 
   if (url.pathname === '/api/admin/employees' && method === 'GET') {
     const snap = await getDocs(collection(db(), 'employees'))
-    return snap.docs.map((item) => ({ id: item.id, ...item.data() })) as T
+    return snap.docs.map((item) => publicEmployee(item.id, item.data())) as T
   }
   if (url.pathname === '/api/admin/employees' && method === 'POST') {
     const raw = await bodyOf(init)
-    const id = `emp-${Date.now().toString(36)}`
-    await setDoc(doc(db(), 'employees', id), { id, ...raw, active: true })
-    return { id, ...raw, active: true } as T
+    return (await createEmployee(raw)) as T
   }
   if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'employees' && parts[3] && method === 'PATCH') {
     const raw = await bodyOf(init)
-    await setDoc(doc(db(), 'employees', parts[3]), raw, { merge: true })
-    return { id: parts[3], ...raw } as T
+    return (await updateEmployee(parts[3], raw)) as T
   }
   if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'employees' && parts[3] && method === 'DELETE') {
-    await deleteDoc(doc(db(), 'employees', parts[3]))
+    await removeEmployee(parts[3])
     return { ok: true } as T
   }
 
   if (url.pathname === '/api/admin/attendance') {
     const month = url.searchParams.get('month') || ''
-    const employees = await getDocs(collection(db(), 'employees'))
-    const corrections = await getDocs(collection(db(), 'corrections'))
+    const [employees, punches, corrections] = await Promise.all([
+      getDocs(collection(db(), 'employees')),
+      getDocs(collection(db(), 'attendance')),
+      getDocs(collection(db(), 'corrections')),
+    ])
+    const punchRows = punches.docs.map((item) => ({ id: item.id, ...item.data() })) as PunchRow[]
     return {
-      employees: employees.docs.map((item) => ({ id: item.id, ...item.data() })),
+      employees: employees.docs.map((item) => {
+        const data = item.data()
+        const own = punchRows.filter((punch) => punch.employeeId === item.id || punch.employeeId === data.authUid)
+        const summary = summarizePunches(own, month)
+        return { ...publicEmployee(item.id, data), ...summary, ...payOf(data, summary.totalMinutes), history: summary.punches }
+      }),
       corrections: corrections.docs
         .map((item) => ({ id: item.id, ...(item.data() as { date?: string }) }))
         .filter((item) => !month || String(item.date || '').startsWith(month)),
@@ -470,18 +476,32 @@ export async function staffFetch<T>(path: string, init?: RequestInit): Promise<T
     return { ok: true } as T
   }
   if (!user) fail('נדרשת כניסת צוות')
+  const employees = await getDocs(collection(db(), 'employees'))
+  const mine = employees.docs.find((item) => item.data().authUid === user.uid || item.id === user.uid)
+  if (!mine || mine.data().active === false) fail('החשבון לא פעיל')
   if (url.pathname === '/api/staff/me') {
-    const employees = await getDocs(collection(db(), 'employees'))
-    const mine = employees.docs.find((item) => item.data().authUid === user.uid || item.id === user.uid)
-    const punches = (await getDocs(collection(db(), 'attendance'))).docs.map((item) => ({ id: item.id, ...item.data() }))
-    return { employee: mine ? { id: mine.id, ...mine.data() } : { id: user.uid, name: user.email }, punches } as T
+    const month = url.searchParams.get('month') || new Date().toISOString().slice(0, 7)
+    const punches = (await getDocs(collection(db(), 'attendance'))).docs.map((item) => ({ id: item.id, ...item.data() })) as PunchRow[]
+    const own = punches.filter((punch) => punch.employeeId === mine.id || punch.employeeId === user.uid)
+    const summary = summarizePunches(own, month)
+    const openAt = summary.openShift?.at
+    const remind = openAt ? Date.now() - new Date(openAt).getTime() > 30 * 60 * 1000 : false
+    return {
+      employee: { id: mine.id, name: mine.data().name || '', username: mine.data().username || '' },
+      month,
+      ...summary,
+      remind,
+      last: summary.punches[0] ?? null,
+    } as T
   }
   if (url.pathname === '/api/staff/punch' && method === 'POST') {
+    const kind = body.kind === 'out' ? 'out' : body.kind === 'note' ? 'note' : 'in'
     await addDoc(collection(db(), 'attendance'), {
-      employeeId: user.uid,
-      employeeName: user.email,
-      kind: body.kind,
+      employeeId: mine.id,
+      employeeName: String(mine.data().name || ''),
+      kind,
       at: new Date().toISOString(),
+      note: String(body.note || ''),
       lat: body.lat ?? null,
       lng: body.lng ?? null,
     })
@@ -489,8 +509,8 @@ export async function staffFetch<T>(path: string, init?: RequestInit): Promise<T
   }
   if (url.pathname === '/api/staff/corrections' && method === 'POST') {
     await addDoc(collection(db(), 'corrections'), {
-      employeeId: user.uid,
-      employeeName: user.email,
+      employeeId: mine.id,
+      employeeName: String(mine.data().name || ''),
       date: body.date,
       kind: body.kind,
       requestedAt: new Date().toISOString(),
@@ -534,6 +554,170 @@ function slotsFor(service: DocumentLike, date: string, taken: Set<string>) {
 }
 
 type DocumentLike = Record<string, unknown>
+
+type PunchRow = { id?: string; employeeId?: string; kind?: string; at?: string; note?: string; lat?: number | null; lng?: number | null }
+
+function staffUsername(value: unknown) {
+  const username = String(value || '').trim().toLowerCase()
+  if (!/^[a-z0-9._-]{3,32}$/.test(username)) fail('שם משתמש באנגלית, 3 עד 32 תווים, בלי רווחים')
+  if (username === 'propharm' || username === 'admin') fail('שם המשתמש שמור למנהל')
+  return username
+}
+
+function staffMail(username: string, generation: number) {
+  if (generation <= 1) return `${username}@propharm.shop`
+  return `e.${username}.${generation}@propharm.shop`
+}
+
+function publicEmployee(id: string, data: DocumentLike) {
+  return {
+    id,
+    name: String(data.name || ''),
+    username: String(data.username || ''),
+    authUid: String(data.authUid || ''),
+    active: data.active !== false,
+    payMode: data.payMode === 'global' || data.pay_mode === 'global' ? 'global' : 'hour',
+    hourlyRate: Number(data.hourlyRate ?? data.hourly_rate) || 0,
+    globalPay: Number(data.globalPay ?? data.global_pay) || 0,
+  }
+}
+
+async function assertUsernameFree(username: string, exceptId?: string) {
+  const snap = await getDocs(collection(db(), 'employees'))
+  if (snap.docs.some((item) => item.id !== exceptId && String(item.data().username || '').toLowerCase() === username)) {
+    fail('שם המשתמש תפוס')
+  }
+}
+
+async function rememberLogin(username: string, email: string, uid: string, required: boolean) {
+  try {
+    await setDoc(doc(db(), 'logins', username), { email, uid })
+  } catch {
+    if (required) throw new Error('לא ניתן לעדכן סיסמה כרגע. הסיסמה הקודמת עדיין בתוקף.')
+  }
+}
+
+async function createEmployee(raw: Record<string, unknown>) {
+  const name = String(raw.name || '').trim()
+  const username = staffUsername(raw.username)
+  const password = String(raw.password || '')
+  if (!name) fail('חסר שם')
+  if (password.length < 6) fail('הסיסמה צריכה לפחות 6 תווים')
+  await assertUsernameFree(username)
+  const email = staffMail(username, 1)
+  const uid = await openStaffAccount(email, password)
+  await setDoc(doc(db(), 'users', uid), { role: 'STAFF', email, createdAt: new Date().toISOString() }, { merge: true })
+  const id = `emp-${Date.now().toString(36)}`
+  const employee = {
+    id,
+    name,
+    username,
+    authUid: uid,
+    authEmail: email,
+    authGeneration: 1,
+    active: true,
+    payMode: 'hour' as const,
+    hourlyRate: 0,
+    globalPay: 0,
+  }
+  await setDoc(doc(db(), 'employees', id), employee)
+  await rememberLogin(username, email, uid, false)
+  return publicEmployee(id, employee)
+}
+
+async function updateEmployee(id: string, raw: Record<string, unknown>) {
+  const snap = await getDoc(doc(db(), 'employees', id))
+  if (!snap.exists()) fail('העובד לא נמצא')
+  const current = snap.data()
+  const name = String(raw.name ?? current.name ?? '').trim()
+  if (!name) fail('חסר שם')
+  const username = raw.username != null && String(raw.username).trim() ? staffUsername(raw.username) : String(current.username || '')
+  const password = String(raw.password || '')
+  const usernameChanged = username !== String(current.username || '')
+  if (usernameChanged) await assertUsernameFree(username, id)
+  if ((usernameChanged || password) && password.length < 6) {
+    fail(usernameChanged ? 'לשינוי שם משתמש צריך להגדיר סיסמה חדשה של 6 תווים לפחות' : 'הסיסמה צריכה לפחות 6 תווים')
+  }
+  let authUid = String(current.authUid || '')
+  let authEmail = String(current.authEmail || '')
+  let generation = Number(current.authGeneration) || (authUid ? 1 : 0)
+  if (password) {
+    const nextGeneration = authUid ? Math.max(generation, 1) + 1 : 1
+    const email = staffMail(username, nextGeneration)
+    const uid = await openStaffAccount(email, password)
+    await setDoc(doc(db(), 'users', uid), { role: 'STAFF', email, createdAt: new Date().toISOString() }, { merge: true })
+    await rememberLogin(username, email, uid, nextGeneration > 1)
+    if (authUid && authUid !== uid) await deleteDoc(doc(db(), 'users', authUid)).catch(() => undefined)
+    if (usernameChanged && current.username) await deleteDoc(doc(db(), 'logins', String(current.username))).catch(() => undefined)
+    authUid = uid
+    authEmail = email
+    generation = nextGeneration
+  }
+  const next = {
+    name,
+    username,
+    authUid,
+    authEmail,
+    authGeneration: generation,
+    active: raw.active === false ? false : current.active !== false,
+    payMode: raw.payMode === 'global' ? 'global' : raw.payMode === 'hour' ? 'hour' : current.payMode === 'global' ? 'global' : 'hour',
+    hourlyRate: raw.hourlyRate != null ? Number(raw.hourlyRate) || 0 : Number(current.hourlyRate) || 0,
+    globalPay: raw.globalPay != null ? Number(raw.globalPay) || 0 : Number(current.globalPay) || 0,
+    password: deleteField(),
+  }
+  await setDoc(doc(db(), 'employees', id), next, { merge: true })
+  return publicEmployee(id, { ...current, ...next })
+}
+
+async function removeEmployee(id: string) {
+  const snap = await getDoc(doc(db(), 'employees', id))
+  const data = snap.data()
+  await deleteDoc(doc(db(), 'employees', id))
+  if (data?.username) await deleteDoc(doc(db(), 'logins', String(data.username))).catch(() => undefined)
+  if (data?.authUid) await deleteDoc(doc(db(), 'users', String(data.authUid))).catch(() => undefined)
+}
+
+function jerusalemDate(iso: string) {
+  const time = new Date(iso)
+  if (Number.isNaN(time.getTime())) return ''
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(time)
+}
+
+function summarizePunches(punches: PunchRow[], month: string) {
+  const sorted = [...punches].filter((item) => item.at).sort((a, b) => String(a.at).localeCompare(String(b.at)))
+  const shifts: Array<{ inAt: string; outAt: string; minutes: number; date: string }> = []
+  let open: PunchRow | null = null
+  for (const punch of sorted) {
+    if (punch.kind === 'in') open = punch
+    else if (punch.kind === 'out' && open?.at && punch.at) {
+      const span = Math.max(0, Math.round((new Date(punch.at).getTime() - new Date(open.at).getTime()) / 60000))
+      shifts.push({ inAt: open.at, outAt: punch.at, minutes: span, date: jerusalemDate(open.at) })
+      open = null
+    }
+  }
+  const days = new Map<string, { date: string; minutes: number; shifts: Array<{ inAt: string; outAt: string; minutes: number }> }>()
+  for (const shift of shifts.filter((item) => !month || item.date.startsWith(month))) {
+    const day = days.get(shift.date) || { date: shift.date, minutes: 0, shifts: [] }
+    day.minutes += shift.minutes
+    day.shifts.push({ inAt: shift.inAt, outAt: shift.outAt, minutes: shift.minutes })
+    days.set(shift.date, day)
+  }
+  const listed = [...days.values()].sort((a, b) => a.date.localeCompare(b.date))
+  return {
+    days: listed,
+    totalMinutes: listed.reduce((sum, day) => sum + day.minutes, 0),
+    openShift: open?.at ? { at: open.at } : null,
+    punches: sorted.filter((item) => item.at && (!month || jerusalemDate(item.at).startsWith(month))).reverse(),
+  }
+}
+
+function payOf(employee: DocumentLike, totalMinutes: number) {
+  const payMode = employee.payMode === 'global' || employee.pay_mode === 'global' ? 'global' : 'hour'
+  const hourlyRate = Number(employee.hourlyRate ?? employee.hourly_rate) || 0
+  const globalPay = Number(employee.globalPay ?? employee.global_pay) || 0
+  const salary = payMode === 'global' ? globalPay : Math.round((totalMinutes / 60) * hourlyRate)
+  return { payMode, hourlyRate, globalPay, salary }
+}
 
 function normalizeService(id: string, data: DocumentLike) {
   return {

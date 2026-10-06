@@ -171,8 +171,8 @@ export function StaffPage({ embedded = false, onLeave }: { embedded?: boolean; o
               <span>יציאה</span>
               <span>פעילות</span>
             </div>
-            {state.days.length === 0 && !state.openShift ? <p className="muted">אין דיווחים בחודש הזה.</p> : null}
-            {state.days.map((day) => {
+            {(state.days ?? []).length === 0 && !state.openShift ? <p className="muted">אין דיווחים בחודש הזה.</p> : null}
+            {(state.days ?? []).map((day) => {
               const shift = day.shifts[0]
               const notes = (state.punches ?? []).filter((item) => item.kind === 'note' && item.at.startsWith(day.date))
               return (

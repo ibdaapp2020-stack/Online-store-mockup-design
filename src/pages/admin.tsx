@@ -176,6 +176,7 @@ export function AdminShell() {
         <NavLink to="/settings">הגדרות</NavLink>
         <span className="admin-nav-label">נוסף</span>
         <NavLink to="/services">תורים</NavLink>
+        <NavLink to="/employees">עובדים</NavLink>
         <NavLink to="/staff">נוכחות</NavLink>
         <a
           href={storeUrl('/')}

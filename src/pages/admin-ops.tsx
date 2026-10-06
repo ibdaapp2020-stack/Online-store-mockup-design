@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
 import { watchAdminAppointments, watchAdminCategories, watchAdminCustomers, watchAdminServices } from '../lib/data/admin-live'
@@ -760,23 +761,6 @@ export function AdminStaff() {
     void load(month).catch((reason) => setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון נוכחות'))
   }, [month])
 
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    const form = new FormData(event.currentTarget)
-    try {
-      await adminFetch('/api/admin/employees', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.fromEntries(form.entries())),
-      })
-      event.currentTarget.reset()
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
-    }
-  }
-
   async function savePay(employee: StaffCard, form: FormData) {
     await adminFetch(`/api/admin/employees/${employee.id}`, {
       method: 'PATCH',
@@ -792,27 +776,11 @@ export function AdminStaff() {
 
   return (
     <div>
-      <h1>עובדים ונוכחות</h1>
-      <form className="panel form" onSubmit={create}>
-        <label>
-          שם
-          <input name="name" required />
-        </label>
-        <div className="split-fields">
-          <label>
-            שם משתמש
-            <input name="username" required />
-          </label>
-          <label>
-            סיסמה
-            <input name="password" type="password" minLength={4} required />
-          </label>
-        </div>
-        {error ? <p className="form-errors">{error}</p> : null}
-        <button className="btn" type="submit">
-          הוספת עובד
-        </button>
-      </form>
+      <h1>נוכחות</h1>
+      <p className="admin-lede">
+        שמות משתמש וסיסמאות נמצאים בלשונית <Link to="/employees">עובדים</Link>. כאן רואים משמרות ושכר.
+      </p>
+      {error ? <p className="form-errors">{error}</p> : null}
       <label className="month-pick">
         חודש
         <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
@@ -824,8 +792,8 @@ export function AdminStaff() {
               <strong>{employee.name}</strong>
               <span className="muted">{employee.username}</span>
             </header>
-            {employee.days.length === 0 ? <p className="muted">אין משמרות סגורות בחודש הזה.</p> : null}
-            {employee.days.map((day) => (
+            {(employee.days ?? []).length === 0 ? <p className="muted">אין משמרות סגורות בחודש הזה.</p> : null}
+            {(employee.days ?? []).map((day) => (
               <div className="day-row" key={day.date}>
                 <span>{day.date}</span>
                 <span>
@@ -931,6 +899,136 @@ export function AdminStaff() {
               <span>{item.status === 'approved' ? 'אושר' : 'נדחה'}</span>
             )}
           </article>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+type EmployeeAccount = { id: string; name: string; username: string; authUid?: string; active?: boolean }
+
+export function AdminEmployees() {
+  const [employees, setEmployees] = useState<EmployeeAccount[]>([])
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function load() {
+    const data = await adminFetch<EmployeeAccount[]>('/api/admin/employees')
+    setEmployees(Array.isArray(data) ? data : [])
+  }
+
+  useEffect(() => {
+    void load().catch((reason) => setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון עובדים'))
+  }, [])
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    setNotice('')
+    const form = new FormData(event.currentTarget)
+    try {
+      await adminFetch('/api/admin/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.get('name'),
+          username: form.get('username'),
+          password: form.get('password'),
+        }),
+      })
+      event.currentTarget.reset()
+      setNotice('העובד נוסף ויכול להיכנס לאתר עם שם המשתמש והסיסמה.')
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
+    }
+  }
+
+  async function save(employee: EmployeeAccount, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    setNotice('')
+    const form = new FormData(event.currentTarget)
+    const password = String(form.get('password') || '')
+    if (!employee.authUid && password.length < 6) {
+      setError('צריך להגדיר סיסמה כדי שהעובד יוכל להיכנס')
+      return
+    }
+    try {
+      await adminFetch(`/api/admin/employees/${employee.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.get('name'),
+          username: form.get('username'),
+          password: form.get('password'),
+        }),
+      })
+      setNotice(`פרטי הכניסה של ${String(form.get('name') || employee.name)} נשמרו.`)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
+    }
+  }
+
+  return (
+    <div>
+      <h1>עובדים</h1>
+      <p className="admin-lede">לכל עובד יש שם משתמש וסיסמה משלו. איתם נכנסים לאתר ומגיעים למסך הנוכחות. הסיסמה לא מוצגת שוב אחרי השמירה.</p>
+      <form className="panel employee-form" onSubmit={create}>
+        <label>
+          שם
+          <input name="name" required />
+        </label>
+        <label>
+          שם משתמש באנגלית
+          <input name="username" required autoComplete="off" dir="ltr" />
+        </label>
+        <label>
+          סיסמה
+          <input name="password" type="password" minLength={6} required autoComplete="new-password" dir="ltr" />
+        </label>
+        <button className="btn" type="submit">
+          הוספת עובד
+        </button>
+      </form>
+      {error ? <p className="form-errors">{error}</p> : null}
+      {notice ? <p className="profile-note">{notice}</p> : null}
+      <div className="employee-board">
+        {employees.length === 0 ? <p className="muted">עדיין אין עובדים.</p> : null}
+        {employees.map((employee) => (
+          <form className="employee-row" key={`${employee.id}-${employee.username}`} onSubmit={(event) => void save(employee, event)}>
+            <label>
+              שם
+              <input name="name" defaultValue={employee.name} required />
+            </label>
+            <label>
+              שם משתמש
+              <input name="username" defaultValue={employee.username} required autoComplete="off" dir="ltr" />
+            </label>
+            <label>
+              סיסמה חדשה
+              <input name="password" type="password" minLength={6} placeholder={employee.authUid ? 'השאירו ריק כדי לא לשנות' : 'חובה להגדיר סיסמה'} autoComplete="new-password" dir="ltr" />
+            </label>
+            <div className="employee-actions">
+              <span className="muted">{employee.authUid ? 'יש כניסה' : 'אין כניסה'}</span>
+              <button className="btn" type="submit">
+                שמירה
+              </button>
+              <button
+                type="button"
+                className="text-btn"
+                onClick={() => {
+                  if (!window.confirm(`למחוק את ${employee.name}?`)) return
+                  void adminFetch(`/api/admin/employees/${employee.id}`, { method: 'DELETE' })
+                    .then(() => load())
+                    .catch((reason) => setError(reason instanceof Error ? reason.message : 'המחיקה נכשלה'))
+                }}
+              >
+                מחיקה
+              </button>
+            </div>
+          </form>
         ))}
       </div>
     </div>

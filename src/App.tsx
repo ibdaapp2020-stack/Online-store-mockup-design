@@ -13,7 +13,7 @@ import { ProductPage } from './pages/Product'
 import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
 import { AdminDashboard, AdminDenied, AdminLogin, AdminMissing, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
-import { AdminCategories, AdminClub, AdminServices, AdminStaff } from './pages/admin-ops'
+import { AdminCategories, AdminClub, AdminEmployees, AdminServices, AdminStaff } from './pages/admin-ops'
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' }
@@ -78,6 +78,7 @@ function PortalRoutes() {
         <Route path="club" element={<Navigate to="/customers" replace />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="services" element={<AdminServices />} />
+        <Route path="employees" element={<AdminEmployees />} />
         <Route path="staff" element={<AdminStaff />} />
         <Route path="*" element={<AdminMissing />} />
       </Route>
