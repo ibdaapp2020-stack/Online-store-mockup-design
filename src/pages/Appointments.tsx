@@ -17,28 +17,31 @@ const DEFAULT_OPTIONS = [
     id: 'physio',
     name: 'פיזיותרפיה',
     icon: '🩺',
-    badge: 'שיקום ותנועה',
+    badge: 'שיקום ותנועה · שעה מלאה',
     desc: 'טיפול שיקומי לכאבי שרירים ושלד, פציעות ספורט, שיפור טווחי תנועה וחזרה לתפקוד מלא.',
-    hours: 'כל יום 09:00–19:00',
+    hours: 'כל יום 09:00–19:00 · 60 דק׳',
     therapist: 'פיזיותרפיסט מומחה',
+    capacity: 1,
   },
   {
     id: 'hyperbaric',
     name: 'טיפול בתא לחץ',
     icon: '💨',
-    badge: 'החלמה מואצת (HBOT)',
-    desc: 'העשרת חמצן בלחץ גבוה לזירוז החלמה, שיקום רקמות פגועות, דלקות כרוניות וחידוש אנרגיה.',
-    hours: 'כל יום 09:00–19:00',
+    badge: 'תא לחץ (HBOT) · עד 2 מטופלים יחד',
+    desc: 'העשרת חמצן בלחץ גבוה לזירוז החלמה, שיקום רקמות ודלקות. ניתן להכניס עד 2 מטופלים בו־זמנית!',
+    hours: 'כל יום 09:00–19:00 · 60 דק׳',
     therapist: 'מטפל תא לחץ מוסמך',
+    capacity: 2,
   },
   {
     id: 'disc',
     name: 'טיפול פריצות דיסק',
     icon: '🦴',
-    badge: 'עמוד שדרה וכאב',
+    badge: 'עמוד שדרה וכאב · שעה מלאה',
     desc: 'פרוטוקול טיפול ממוקד לשחרור לחץ עצבי, הקלה בכאבי גב וצוואר תחתונים ושיקום עמוד השדרה.',
-    hours: 'כל יום 09:00–19:00',
+    hours: 'כל יום 09:00–19:00 · 60 דק׳',
     therapist: 'מומחה שיקום עמוד שדרה',
+    capacity: 1,
   },
 ]
 
@@ -96,11 +99,10 @@ export function AppointmentsPage() {
         setSlots(Array.isArray(data) ? data : [])
       })
       .catch(() => {
-        // Fallback default slots 09:00 to 19:00
+        // Fallback default slots 09:00 to 19:00 (every slot is a full hour)
         const defaultSlots: string[] = []
         for (let h = 9; h < 19; h++) {
           defaultSlots.push(`${String(h).padStart(2, '0')}:00`)
-          defaultSlots.push(`${String(h).padStart(2, '0')}:30`)
         }
         setSlots(defaultSlots)
       })
@@ -306,9 +308,15 @@ export function AppointmentsPage() {
               </h2>
             </div>
             <span className="badge in-stock" style={{ fontSize: '0.88rem', padding: '0.4rem 0.8rem' }}>
-              שעות: כל יום 09:00–19:00
+              שעות: כל יום 09:00–19:00 · תור של שעה שלמה
             </span>
           </div>
+
+          {(selectedServiceId === 'hyperbaric' || currentServiceName.includes('לחץ') || currentServiceName.includes('חמצן')) ? (
+            <div style={{ margin: '0 0 1.25rem 0', padding: '0.75rem 1rem', background: '#e0f2fe', borderRadius: '10px', color: '#0369a1', fontSize: '0.92rem' }}>
+              💡 <strong>טיפול בתא לחץ (חמצן):</strong> ניתן להכניס עד 2 מטופלים בו־זמנית באותה השעה. אם מגיעים שניים יחד, ציינו זאת בהערות למטה.
+            </div>
+          ) : null}
 
           <form onSubmit={handleBookSubmit}>
             {/* 2A. Day Selection */}
@@ -343,7 +351,7 @@ export function AppointmentsPage() {
             {/* 2B. Hour Slots */}
             <div style={{ marginBottom: '1.5rem' }}>
               <label style={{ fontWeight: 700, fontSize: '0.95rem', display: 'block', marginBottom: '0.5rem' }}>
-                3. בחרו שעה (מ־09:00 עד 19:00):
+                3. בחרו שעה (תור של שעה מלאה מ־09:00 עד 19:00):
               </label>
 
               {loadingSlots ? (

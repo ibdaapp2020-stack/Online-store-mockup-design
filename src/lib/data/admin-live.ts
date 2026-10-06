@@ -51,14 +51,16 @@ export function watchAdminCustomers(onData: (members: Array<Record<string, unkno
 }
 
 function serviceFrom(id: string, data: Record<string, unknown>) {
+  const cap = Number(data.capacity) || (id === 'hyperbaric' || String(data.name || '').includes('לחץ') || String(data.name || '').includes('חמצן') ? 2 : 1)
   return {
     id: String(data.id || id),
     name: String(data.name || data.title || ''),
-    days: Array.isArray(data.days) ? data.days.map(Number) : [0, 1, 2, 3, 4],
+    days: Array.isArray(data.days) ? data.days.map(Number) : [0, 1, 2, 3, 4, 5, 6],
     openTime: String(data.openTime || data.open_time || '09:00'),
-    closeTime: String(data.closeTime || data.close_time || '17:00'),
-    slotMinutes: Number(data.slotMinutes || data.slot_minutes) || 30,
+    closeTime: String(data.closeTime || data.close_time || '19:00'),
+    slotMinutes: Number(data.slotMinutes || data.slot_minutes) || 60,
     therapist: String(data.therapist || data.provider || ''),
+    capacity: cap,
     active: data.active !== false,
   }
 }

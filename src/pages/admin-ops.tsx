@@ -14,6 +14,7 @@ type Service = {
   openTime: string
   closeTime: string
   slotMinutes: number
+  capacity?: number
   therapist: string
   active: boolean
 }
@@ -95,10 +96,10 @@ function minutesToTimeString(totalMinutes: number): string {
 
 function generateTimeSlots(openTime: string, closeTime: string, slotMinutes: number): string[] {
   const start = parseTimeToMinutes(openTime || '09:00')
-  const end = parseTimeToMinutes(closeTime || '17:00')
-  const step = Math.max(10, slotMinutes || 30)
+  const end = parseTimeToMinutes(closeTime || '19:00')
+  const step = Math.max(10, slotMinutes || 60)
   const slots: string[] = []
-  for (let t = start; t < end; t += step) {
+  for (let t = start; t + step <= end; t += step) {
     slots.push(minutesToTimeString(t))
   }
   return slots
@@ -124,8 +125,12 @@ export function AdminServices() {
   const [bookingTherapist, setBookingTherapist] = useState('')
   const [bookingCreateCustomer, setBookingCreateCustomer] = useState(false)
   const [bookingSaving, setBookingSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
+    // Proactively sync default services to ensure Firestore has the 3 services with 60 min slots and capacity=2 for hyperbaric
+    void adminFetch('/api/admin/services/sync', { method: 'POST' }).catch(() => {})
+
     const stopServices = watchAdminServices(
       (rows) => {
         if (rows.length === 0) {
@@ -159,6 +164,20 @@ export function AdminServices() {
 
   const currentService = services.find((s) => s.id === selectedServiceId) || services[0]
 
+  async function handleSyncServices() {
+    setSyncing(true)
+    setError('')
+    try {
+      const fresh = await adminFetch<Service[]>('/api/admin/services/sync', { method: 'POST' })
+      setServices(fresh)
+      setNotice('3 שירותי המרפאה סונכרנו בהצלחה: פיזיותרפיה, טיפול בתא לחץ (2 מטופלים בו־זמנית), טיפול פריצות דיסק (תור של שעה, 09:00–19:00)')
+    } catch (reason) {
+      setError(serviceSaveError(reason))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   async function createService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
@@ -178,12 +197,13 @@ export function AdminServices() {
           openTime: data.get('openTime'),
           closeTime: data.get('closeTime'),
           slotMinutes: Number(data.get('slotMinutes')),
+          capacity: Number(data.get('capacity')) || 1,
           therapist: data.get('therapist'),
           days,
         }),
       })
       form.reset()
-      setDays([0, 1, 2, 3, 4])
+      setDays([0, 1, 2, 3, 4, 5, 6])
       setServices((current) => (current.some((item) => item.id === created.id) ? current : [...current, created]))
       setSelectedServiceId(created.id)
       setShowNewService(false)
@@ -255,9 +275,22 @@ export function AdminServices() {
     }
   }
 
-  // Generate slots for currentService
+  // Capacity of current service (2 for hyperbaric / oxygen, 1 for others)
+  const serviceCapacity =
+    currentService?.capacity ||
+    (currentService?.id === 'hyperbaric' ||
+    currentService?.name?.includes('לחץ') ||
+    currentService?.name?.includes('חמצן')
+      ? 2
+      : 1)
+
+  // Generate hourly slots for currentService (default 09:00 to 19:00, 60 minutes)
   const timeSlots = currentService
-    ? generateTimeSlots(currentService.openTime || '09:00', currentService.closeTime || '17:00', currentService.slotMinutes || 30)
+    ? generateTimeSlots(
+        currentService.openTime || '09:00',
+        currentService.closeTime || '19:00',
+        currentService.slotMinutes || 60,
+      )
     : []
 
   // Day appointments for current service
@@ -265,9 +298,11 @@ export function AdminServices() {
     (item) => currentService && item.serviceId === currentService.id && item.date === day && item.status !== 'cancelled',
   )
 
-  const bookedCount = currentDayAppointments.filter((a) => a.status === 'booked' || a.status === 'done').length
+  const bookedAppointments = currentDayAppointments.filter((a) => a.status === 'booked' || a.status === 'done')
+  const bookedCount = bookedAppointments.length
   const closedCount = currentDayAppointments.filter((a) => a.status === 'closed').length
-  const freeCount = Math.max(0, timeSlots.length - bookedCount - closedCount)
+  const totalCapacitySpots = timeSlots.length * serviceCapacity
+  const freeSpots = Math.max(0, totalCapacitySpots - bookedCount - closedCount * serviceCapacity)
 
   return (
     <div className="admin-services-page">
@@ -276,13 +311,24 @@ export function AdminServices() {
           <h1>שירותים ותורים</h1>
           <p className="muted">ניהול שירותי המרפאה ולוח שעות מהיר – קביעה וסגירה בלחיצה אחת</p>
         </div>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => setShowNewService((v) => !v)}
-        >
-          {showNewService ? '✕ סגור טופס' : '+ שירות חדש'}
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={handleSyncServices}
+            disabled={syncing}
+            title="סנכרן 3 שירותי מרפאה למסד הנתונים"
+          >
+            {syncing ? 'מסנכרן...' : '🔄 סנכרן 3 שירותי מרפאה'}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setShowNewService((v) => !v)}
+          >
+            {showNewService ? '✕ סגור טופס' : '+ שירות חדש'}
+          </button>
+        </div>
       </div>
 
       {notice ? <div className="admin-banner-notice">{notice}</div> : null}
@@ -318,19 +364,23 @@ export function AdminServices() {
             </label>
             <label>
               עד שעה
-              <input name="closeTime" type="time" defaultValue="17:00" required />
+              <input name="closeTime" type="time" defaultValue="19:00" required />
             </label>
           </div>
           <div className="split-fields">
             <label>
-              אורך תור בדקות
-              <input name="slotMinutes" type="number" min={10} step={5} defaultValue={30} required />
+              אורך תור בדקות (ברירת מחדל: 60)
+              <input name="slotMinutes" type="number" min={10} step={5} defaultValue={60} required />
             </label>
             <label>
-              שם המטפל או הרופא
-              <input name="therapist" placeholder="ד״ר כהן / פיזיותרפיסט" />
+              מספר מטופלים במקביל לשעה
+              <input name="capacity" type="number" min={1} max={10} defaultValue={1} required />
             </label>
           </div>
+          <label>
+            שם המטפל או הרופא
+            <input name="therapist" placeholder="ד״ר כהן / פיזיותרפיסט" />
+          </label>
           <div className="choice-row">
             <button className="btn" type="submit">
               שמירת שירות חדש
@@ -345,15 +395,16 @@ export function AdminServices() {
       {/* Services List at the TOP */}
       <div style={{ marginBottom: '1.5rem' }}>
         <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.6rem', color: '#163a66' }}>
-          בחירת שירות לצפייה וניהול יומן:
+          שירותי המרפאה (3 שירותים מוגדרים):
         </h3>
         {loadingServices ? <p className="muted">טוען שירותים...</p> : null}
         {!loadingServices && services.length === 0 ? (
-          <p className="muted">עדיין אין שירותים. לחצו על &quot;+ שירות חדש&quot; כדי להתחיל.</p>
+          <p className="muted">עדיין אין שירותים. לחצו על &quot;סנכרן 3 שירותי מרפאה&quot; כדי לטעון אותם.</p>
         ) : null}
         <div className="admin-service-cards-grid">
           {services.map((service) => {
             const isSelected = currentService?.id === service.id
+            const cap = service.capacity || (service.id === 'hyperbaric' || service.name?.includes('לחץ') || service.name?.includes('חמצן') ? 2 : 1)
             return (
               <div
                 key={service.id}
@@ -370,7 +421,12 @@ export function AdminServices() {
                   👨‍⚕️ {service.therapist || 'רופא / מטפל'}
                 </div>
                 <div className="service-details muted">
-                  🕒 {service.openTime}–{service.closeTime} · {service.slotMinutes} דק׳
+                  🕒 {service.openTime}–{service.closeTime} · {service.slotMinutes} דק׳ (שעה שלמה)
+                  {cap > 1 ? (
+                    <span style={{ color: '#0284c7', fontWeight: 700, marginRight: '0.35rem' }}>
+                      · עד {cap} מטופלים יחד 👥
+                    </span>
+                  ) : null}
                 </div>
                 <div className="service-days-preview">
                   {(Array.isArray(service.days) ? service.days : []).map((d) => (
@@ -421,7 +477,12 @@ export function AdminServices() {
                 יומן תורים: {currentService.name}
               </h2>
               <p className="muted" style={{ margin: '0.2rem 0 0 0' }}>
-                מטפל: {currentService.therapist || 'כללי'} · שעות עבודה: {currentService.openTime}–{currentService.closeTime}
+                מטפל: {currentService.therapist || 'כללי'} · שעות עבודה: {currentService.openTime}–{currentService.closeTime} (תור של {currentService.slotMinutes || 60} דק׳)
+                {serviceCapacity > 1 ? (
+                  <strong style={{ color: '#0284c7', marginRight: '0.5rem' }}>
+                    · ניתן להכניס {serviceCapacity} מטופלים בו־זמנית
+                  </strong>
+                ) : null}
               </p>
             </div>
             {/* Quick Metrics for current day */}
@@ -429,8 +490,11 @@ export function AdminServices() {
               <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}>
                 סה״כ שעות: {timeSlots.length}
               </span>
+              <span className="badge" style={{ background: '#f0fdf4', color: '#166534', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}>
+                מקומות לטיפול: {totalCapacitySpots}
+              </span>
               <span className="badge" style={{ background: '#dcfce7', color: '#15803d', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}>
-                פנויות: {freeCount}
+                פנויים: {freeSpots}
               </span>
               <span className="badge" style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: '0.82rem', padding: '0.35rem 0.65rem' }}>
                 נקבעו: {bookedCount}
@@ -482,142 +546,180 @@ export function AdminServices() {
 
           <div className="admin-slots-grid">
             {timeSlots.map((slot) => {
-              const appt = currentDayAppointments.find((a) => a.time === slot)
-              const isClosed = appt?.status === 'closed'
-              const isBooked = appt && appt.status !== 'closed' && appt.status !== 'cancelled'
-              const isDone = appt?.status === 'done'
+              const slotAppointments = currentDayAppointments.filter((a) => a.time === slot)
+              const closedAppt = slotAppointments.find((a) => a.status === 'closed')
+              const isClosed = Boolean(closedAppt)
+              const slotBooked = slotAppointments.filter((a) => a.status === 'booked' || a.status === 'done')
+              const slotCount = slotBooked.length
+              const isFull = slotCount >= serviceCapacity
+              const hasSpace = !isClosed && slotCount < serviceCapacity
+              const allDone = slotCount > 0 && slotBooked.every((a) => a.status === 'done')
 
               return (
                 <div
                   key={slot}
-                  className={`admin-slot-card ${isBooked ? 'booked' : isClosed ? 'closed' : 'free'}`}
+                  className={`admin-slot-card ${isFull ? 'booked' : isClosed ? 'closed' : slotCount > 0 ? 'partial' : 'free'}`}
+                  style={slotCount > 0 && !isFull ? { borderColor: '#f59e0b', background: '#fffbeb' } : undefined}
                 >
                   <div className="slot-card-header">
                     <span className="slot-time">{slot}</span>
-                    {isBooked ? (
-                      <span className={`badge ${isDone ? 'done-badge' : 'booked-badge'}`}>
-                        {isDone ? 'בוצע ✓' : 'תפוס 👤'}
-                      </span>
-                    ) : isClosed ? (
+                    {isClosed ? (
                       <span className="badge closed-badge">סגור 🔒</span>
+                    ) : serviceCapacity > 1 ? (
+                      slotCount === 0 ? (
+                        <span className="badge free-badge">פנוי (0/{serviceCapacity}) 🟢</span>
+                      ) : isFull ? (
+                        <span className={`badge ${allDone ? 'done-badge' : 'booked-badge'}`}>
+                          {allDone ? 'בוצע (2/2) ✓' : 'מלא (2/2) 👥'}
+                        </span>
+                      ) : (
+                        <span className="badge" style={{ background: '#fef08a', color: '#854d0e', fontWeight: 700 }}>
+                          1 מתוך 2 👤
+                        </span>
+                      )
+                    ) : slotCount > 0 ? (
+                      <span className={`badge ${allDone ? 'done-badge' : 'booked-badge'}`}>
+                        {allDone ? 'בוצע ✓' : 'תפוס 👤'}
+                      </span>
                     ) : (
                       <span className="badge free-badge">פנוי 🟢</span>
                     )}
                   </div>
 
                   <div className="slot-card-body">
-                    {isBooked && appt ? (
-                      <div>
-                        <strong className="slot-customer-name">{appt.customerName}</strong>
-                        {appt.phone ? (
-                          <div className="slot-phone-row">
-                            <a href={`tel:${appt.phone}`} className="slot-tel-link">
-                              📞 {appt.phone}
-                            </a>
-                            <a
-                              href={waLink(appt.phone, `שלום ${appt.customerName}, תזכורת לתור ב-${currentService.name} בתאריך ${day} בשעה ${slot}`)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="slot-wa-link"
-                              title="שלח וואטסאפ"
+                    {isClosed ? (
+                      <div className="muted" style={{ fontSize: '0.8rem' }}>שעה חסומה לקבלת קהל</div>
+                    ) : slotBooked.length > 0 ? (
+                      <div className="slot-patients-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                        {slotBooked.map((appt, idx) => {
+                          const isDone = appt.status === 'done'
+                          return (
+                            <div
+                              key={appt.id}
+                              className="slot-patient-item"
+                              style={{
+                                padding: '0.35rem 0.45rem',
+                                background: 'white',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                              }}
                             >
-                              💬 וואטסאפ
-                            </a>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <strong className="slot-customer-name" style={{ fontSize: '0.88rem' }}>
+                                  {serviceCapacity > 1 ? `${idx + 1}. ` : ''}{appt.customerName}
+                                </strong>
+                                <span style={{ fontSize: '0.72rem', color: isDone ? '#15803d' : '#0369a1', fontWeight: 600 }}>
+                                  {isDone ? 'בוצע ✓' : 'נקבע'}
+                                </span>
+                              </div>
+                              {appt.phone ? (
+                                <div className="slot-phone-row" style={{ marginTop: '0.2rem', fontSize: '0.78rem' }}>
+                                  <a href={`tel:${appt.phone}`} className="slot-tel-link">
+                                    📞 {appt.phone}
+                                  </a>
+                                  <a
+                                    href={waLink(appt.phone, `שלום ${appt.customerName}, תזכורת לתור ב-${currentService.name} בתאריך ${day} בשעה ${slot}`)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="slot-wa-link"
+                                    title="שלח וואטסאפ"
+                                  >
+                                    💬 וואטסאפ
+                                  </a>
+                                </div>
+                              ) : null}
+                              <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.3rem' }}>
+                                <button
+                                  type="button"
+                                  className="btn-slot-sub"
+                                  style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}
+                                  title="סמן כבוצע"
+                                  onClick={() => {
+                                    void adminFetch(`/api/admin/appointments/${appt.id}`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ status: isDone ? 'booked' : 'done' }),
+                                    })
+                                  }}
+                                >
+                                  {isDone ? 'בטל ביצוע' : 'סמן בוצע ✓'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-slot-sub danger"
+                                  style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem', color: '#b91c1c' }}
+                                  title="ביטול תור"
+                                  onClick={() => {
+                                    if (!window.confirm(`לבטל את התור של ${appt.customerName}?`)) return
+                                    void adminFetch(`/api/admin/appointments/${appt.id}`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ status: 'cancelled' }),
+                                    }).then(() => setNotice(`התור של ${appt.customerName} בוטל`))
+                                  }}
+                                >
+                                  ביטול ✕
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {hasSpace ? (
+                          <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '0.15rem 0' }}>
+                            🟢 נותר מקום למטופל נוסף!
                           </div>
                         ) : null}
-                        {appt.therapist ? <div className="slot-therapist-sub">מטפל: {appt.therapist}</div> : null}
                       </div>
-                    ) : isClosed ? (
-                      <div className="muted" style={{ fontSize: '0.8rem' }}>שעה חסומה לקבלת קהל</div>
                     ) : (
-                      <div className="muted" style={{ fontSize: '0.8rem' }}>פנוי להזמנה</div>
+                      <div className="muted" style={{ fontSize: '0.8rem' }}>
+                        פנוי להזמנה {serviceCapacity > 1 ? `(עד ${serviceCapacity} מטופלים)` : ''}
+                      </div>
                     )}
                   </div>
 
                   {/* Actions right on the slot! */}
-                  <div className="slot-card-actions">
-                    {!appt || appt.status === 'cancelled' ? (
-                      <>
+                  <div className="slot-card-actions" style={{ marginTop: '0.5rem' }}>
+                    {isClosed ? (
+                      <button
+                        type="button"
+                        className="btn-slot open"
+                        onClick={() => {
+                          if (closedAppt) {
+                            void adminFetch(`/api/admin/appointments/${closedAppt.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ status: 'cancelled' }),
+                            }).then(() => setNotice(`השעה ${slot} נפתחה מחדש לקהל`))
+                          }
+                        }}
+                      >
+                        פתח שעה 🔓
+                      </button>
+                    ) : hasSpace ? (
+                      <div style={{ display: 'flex', gap: '0.35rem', width: '100%' }}>
                         <button
                           type="button"
                           className="btn-slot book"
+                          style={{ flex: 1 }}
                           onClick={() => {
                             setBookingSlot(slot)
                             setBookingTherapist(currentService.therapist || '')
                           }}
                         >
-                          קבע תור ✚
+                          {slotCount === 0 ? 'קבע תור ✚' : `+ הוסף מטופל (${slotCount + 1}/${serviceCapacity})`}
                         </button>
-                        <button
-                          type="button"
-                          className="btn-slot close"
-                          onClick={() => quickCloseSlot(slot)}
-                          title="סגור שעה זו לקהל"
-                        >
-                          סגור שעה 🔒
-                        </button>
-                      </>
-                    ) : isClosed ? (
-                      <button
-                        type="button"
-                        className="btn-slot open"
-                        onClick={() => {
-                          void adminFetch(`/api/admin/appointments/${appt.id}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status: 'cancelled' }),
-                          }).then(() => setNotice(`השעה ${slot} נפתחה מחדש לקהל`))
-                        }}
-                      >
-                        פתח שעה 🔓
-                      </button>
-                    ) : (
-                      <div className="slot-action-buttons-group">
-                        <button
-                          type="button"
-                          className="btn-slot-sub"
-                          title="סמן כבוצע"
-                          onClick={() => {
-                            void adminFetch(`/api/admin/appointments/${appt.id}`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ status: isDone ? 'booked' : 'done' }),
-                            })
-                          }}
-                        >
-                          {isDone ? 'בטל ביצוע' : 'בוצע ✓'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-slot-sub danger"
-                          title="ביטול תור"
-                          onClick={() => {
-                            if (!window.confirm(`לבטל את התור של ${appt.customerName}?`)) return
-                            void adminFetch(`/api/admin/appointments/${appt.id}`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ status: 'cancelled' }),
-                            }).then(() => setNotice('התור בוטל והשעה התפנתה'))
-                          }}
-                        >
-                          בטל תור ✕
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-slot-sub"
-                          title="סגור שעה זו"
-                          onClick={() => {
-                            void adminFetch(`/api/admin/appointments/${appt.id}`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ status: 'closed' }),
-                            })
-                          }}
-                        >
-                          חסום 🔒
-                        </button>
+                        {slotCount === 0 ? (
+                          <button
+                            type="button"
+                            className="btn-slot close"
+                            onClick={() => quickCloseSlot(slot)}
+                            title="סגור שעה זו לקהל"
+                          >
+                            סגור 🔒
+                          </button>
+                        ) : null}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               )
@@ -637,7 +739,14 @@ export function AdminServices() {
               </button>
             </div>
             <div className="admin-modal-summary" style={{ background: '#eff6ff', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', color: '#1e40af' }}>
-              <strong>{currentService.name}</strong> · יום {day} בשעה <strong>{bookingSlot}</strong> ({currentService.slotMinutes} דק׳)
+              <div>
+                <strong>{currentService.name}</strong> · יום {day} בשעה <strong>{bookingSlot}</strong> (תור של שעה מלאה, 60 דק׳)
+              </div>
+              {serviceCapacity > 1 ? (
+                <div style={{ marginTop: '0.35rem', fontSize: '0.85rem', color: '#0369a1', fontWeight: 600 }}>
+                  💡 טיפול בתא לחץ / חמצן מאפשר 2 מטופלים בו־זמנית בשעה זו.
+                </div>
+              ) : null}
             </div>
             <form onSubmit={handleQuickBookSubmit} className="form">
               <label>
