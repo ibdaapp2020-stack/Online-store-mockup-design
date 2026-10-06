@@ -23,14 +23,99 @@ export function HomePage() {
     .filter((product) => !best.slice(0, 10).some((item) => item.id === product.id))
     .sort((a, b) => b.rating - a.rating || b.reviews - a.reviews)
   const [shelfSize, setShelfSize] = useState({ newest: 10, best: 10, recommended: 10 })
-  const kit = products.find((product) => product.id === 'kit')
   const catsRef = useRef<HTMLDivElement>(null)
   const [catEnds, setCatEnds] = useState({ prev: false, next: false })
   const [slide, setSlide] = useState(0)
 
-  const activeCustomSlides = (settings.slides || []).filter((item) => item.active !== false)
-  const slides = activeCustomSlides.length > 0
-    ? activeCustomSlides.map((item) => ({
+  const DEFAULT_CATEGORY_SLIDES = [
+    {
+      id: 'ortho',
+      to: '/catalog?cat=ortho',
+      badge: '⭐ סדרת הפרימיום · תמיכות ושיקום',
+      title: 'חזרה לתנועה מלאה וללא כאבים',
+      subtitle: 'תומכי ברך אנטומיים, חגורות גב, קיבועי קרסול ושורש כף יד – לתמיכה אופטימלית בספורט ובשגרה.',
+      cta: 'לקולקציית האורתופדיה',
+      accentTag: 'טכנולוגיית לחץ אנטומית 3D',
+      chips: ['✓ תמיכה אקטיבית', '✓ בד נושם ואלסטי', '✓ הפחתת עומסים'],
+      primaryImg: '/products/knee-sleeve.jpg',
+      secondaryImg: '/products/wrist-brace.jpg',
+      tertiaryImg: '/products/air-ankle.jpg',
+      bgColor: 'linear-gradient(135deg, #0b192c 0%, #1e3a8a 52%, #0284c7 100%)',
+      glowColor: '#38bdf8',
+      custom: false as const,
+    },
+    {
+      id: 'monitors',
+      to: '/catalog?cat=monitors',
+      badge: '🩺 דיוק קליני מוסמך · בדיקות ביתיות',
+      title: 'מעקב רפואי חכם ומדויק בבית',
+      subtitle: 'מדי לחץ דם דיגיטליים, מדדי חמצן בדם (אוקסימטרים), מדחומים ומדי סוכר ברמת אמינות של בית חולים.',
+      cta: 'למכשירי המדידה והניטור',
+      accentTag: '100% דיוק ואישור רפואי',
+      chips: ['✓ תוצאה מיידית', '✓ זיכרון מדידות חכם', '✓ קל לתפעול'],
+      primaryImg: '/products/bp.png',
+      secondaryImg: '/products/oxi.png',
+      tertiaryImg: '/products/thermo.png',
+      bgColor: 'linear-gradient(135deg, #042f2e 0%, #0d9488 52%, #0ea5e9 100%)',
+      glowColor: '#2dd4bf',
+      custom: false as const,
+    },
+    {
+      id: 'vitamins',
+      to: '/catalog?cat=vitamins',
+      badge: '🌿 אנרגיה וחיוניות · 100% רכיבים טבעיים',
+      title: 'חיזוק הגוף והמערכת החיסונית',
+      subtitle: 'קומפלקס ויטמין D3, מגנזיום ציטראט, אומגה 3 מרוכזת ומולטי-ויטמינים לספיגה מוגברת ולבריאות שיא.',
+      cta: 'לתוספי התזונה והויטמינים',
+      accentTag: 'פורמולות פרימיום לספיגה מקסימלית',
+      chips: ['✓ רכיבים טבעיים', '✓ כשרות מוקפדת', '✓ ללא חומרים משמרים'],
+      primaryImg: '/products/omega.png',
+      secondaryImg: '/products/vd.png',
+      tertiaryImg: '/products/mag.png',
+      bgColor: 'linear-gradient(135deg, #064e3b 0%, #059669 52%, #65a30d 100%)',
+      glowColor: '#4ade80',
+      custom: false as const,
+    },
+    {
+      id: 'first-aid',
+      to: '/catalog?cat=first-aid',
+      badge: '🚑 מוכנים לכל רגע · ביטחון למשפחה',
+      title: 'ערכות עזרה ראשונה וחבישה מקצועית',
+      subtitle: 'ערכות חירום שלמות לבית, לרכב ולטיולים, תחבושות אלסטיות, פלסטרים אטומים למים וציוד טיפול מהיר.',
+      cta: 'לציוד עזרה ראשונה וחירום',
+      accentTag: 'תקן רפואי מתקדם',
+      chips: ['✓ עמיד במים ותנאי שטח', '✓ אריזות סטריליות', '✓ מענה מיידי'],
+      primaryImg: '/products/kit.png',
+      secondaryImg: '/products/plasters.png',
+      tertiaryImg: '/products/bandage.png',
+      bgColor: 'linear-gradient(135deg, #4c0519 0%, #9f1239 52%, #e11d48 100%)',
+      glowColor: '#fb7185',
+      custom: false as const,
+    },
+    {
+      id: 'home',
+      to: '/catalog?cat=home',
+      badge: '🏡 עצמאות, בטיחות ואיכות חיים',
+      title: 'עזרי הליכה, רחצה ושיקום ביתי',
+      subtitle: 'הליכונים קלים מתקפלים, רולטורים, מקלות הליכה, מושבי רחצה בטיחותיים וארגוניות תרופות חכמות.',
+      cta: 'לפתרונות הנגישות והבית',
+      accentTag: 'עמידות, קלות משקל ונוחות',
+      chips: ['✓ אלומיניום תעופתי קל', '✓ יציבות ובטיחות מקסימלית', '✓ התאמה אישית'],
+      primaryImg: '/products/walker-std.jpg',
+      secondaryImg: '/products/rollator.jpg',
+      tertiaryImg: '/products/cane.png',
+      bgColor: 'linear-gradient(135deg, #1e1b4b 0%, #4338ca 52%, #6366f1 100%)',
+      glowColor: '#818cf8',
+      custom: false as const,
+    },
+  ]
+
+  // Filter out any clinic/appointment slides from the hero slider as requested
+  const customSlides = (settings.slides || [])
+    .filter((item) => item.active !== false && item.id !== 'slide-clinic' && item.id !== 'clinic' && !item.link?.includes('appointments'))
+
+  const slides = customSlides.length >= 5
+    ? customSlides.map((item) => ({
         id: item.id,
         to: item.link || '/catalog',
         title: item.title,
@@ -41,11 +126,7 @@ export function HomePage() {
         bgColor: item.bgColor,
         custom: true as const,
       }))
-    : [
-        { id: 'new', to: '/catalog?badge=new', custom: false as const },
-        { id: 'clinic', to: '/appointments', custom: false as const },
-        { id: 'kit', to: '/p/kit', custom: false as const },
-      ]
+    : DEFAULT_CATEGORY_SLIDES
 
   useEffect(() => {
     const timer = window.setInterval(() => setSlide((current) => (current + 1) % slides.length), 5000)
@@ -109,7 +190,7 @@ export function HomePage() {
         </button>
         <div className="hero-track" style={{ transform: `translateX(${slide * 100}%)` }}>
           {slides.map((item) => {
-            if (item.custom) {
+            if ('custom' in item && item.custom) {
               return (
                 <Link
                   key={item.id}
@@ -117,11 +198,11 @@ export function HomePage() {
                   to={item.to}
                   style={item.bgColor ? { background: item.bgColor } : undefined}
                 >
-                  <div>
-                    {item.badge ? <p className="hero-kicker">{item.badge}</p> : null}
+                  <div className="hero-content">
+                    {item.badge ? <span className="hero-kicker-badge">{item.badge}</span> : null}
                     <h2>{item.title}</h2>
                     <p>{item.subtitle}</p>
-                    <span className="hero-cta">לפרטים וקנייה</span>
+                    <span className="hero-cta-btn">לפרטים וקנייה ←</span>
                   </div>
                   {item.videoUrl ? (
                     <video
@@ -138,48 +219,49 @@ export function HomePage() {
                 </Link>
               )
             }
-            if (item.id === 'new') {
-              return (
-                <Link key={item.id} className="hero-slide" to={item.to}>
-                  <div>
-                    <p className="hero-kicker">PRO PHARM</p>
-                    <h2>מוצרים חדשים</h2>
-                    <p>תמיכות, הליכה וציוד ביתי חדש במדף.</p>
-                    <span className="hero-cta">לכל המוצרים</span>
-                  </div>
-                  <img src="/products/walker-std.jpg" alt="" />
-                </Link>
-              )
-            }
-            if (item.id === 'clinic') {
-              return (
-                <Link key={item.id} className="hero-slide hero-clinic" to={item.to}>
-                  <div>
-                    <p className="hero-kicker">מרפאת מומחים · כל יום 09:00–19:00</p>
-                    <h2>קביעת תור למרפאה</h2>
-                    <p>פיזיותרפיה · טיפול בתא לחץ · טיפול פריצות דיסק</p>
-                    <span className="hero-cta">לקביעת תור</span>
-                  </div>
-                  <div className="clinic-hero-visual">
-                    <span className="clinic-badge-pill">🩺 פיזיותרפיה</span>
-                    <span className="clinic-badge-pill">💨 תא לחץ (HBOT)</span>
-                    <span className="clinic-badge-pill">🦴 פריצות דיסק</span>
-                  </div>
-                </Link>
-              )
-            }
             return (
-              <Link key={item.id} className="hero-slide hero-sale" to={item.to}>
-                <div>
-                  <p className="hero-kicker">מבצע</p>
-                  <h2>ערכת עזרה ראשונה</h2>
-                  <p>במחיר מוזל לזמן מוגבל.</p>
-                  <span className="hero-cta">לערכה</span>
+              <Link
+                key={item.id}
+                className="hero-slide hero-category-slide"
+                to={item.to}
+                style={{ background: item.bgColor }}
+              >
+                <div className="hero-glow hero-glow-1" style={{ background: `radial-gradient(circle, ${item.glowColor}, transparent 70%)` }} />
+                <div className="hero-glow hero-glow-2" style={{ background: `radial-gradient(circle, ${item.glowColor}, transparent 70%)` }} />
+
+                <div className="hero-content">
+                  <span className="hero-kicker-badge">{item.badge}</span>
+                  <h2>{item.title}</h2>
+                  <p>{item.subtitle}</p>
+                  <span className="hero-cta-btn">
+                    {item.cta} ←
+                  </span>
                 </div>
-                <div className="hero-deal">
-                  <img src={kit ? productImage(kit) : '/products/kit.png'} alt="" />
-                  <span className="deal-now">{kit?.price ?? 89} ₪</span>
-                  <span className="deal-was">{kit?.compareAt ?? 119} ₪</span>
+
+                <div className="hero-stage">
+                  <span className="hero-accent-pill">{item.accentTag}</span>
+                  <div className="hero-product-collage">
+                    <div className="hero-product-main">
+                      <img src={item.primaryImg} alt={item.title} />
+                    </div>
+                    {item.secondaryImg ? (
+                      <div className="hero-product-sub hero-sub-1">
+                        <img src={item.secondaryImg} alt="" />
+                      </div>
+                    ) : null}
+                    {item.tertiaryImg ? (
+                      <div className="hero-product-sub hero-sub-2">
+                        <img src={item.tertiaryImg} alt="" />
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="hero-chips-row">
+                    {item.chips.map((chip, cIdx) => (
+                      <span key={cIdx} className="hero-chip">
+                        {chip}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </Link>
             )

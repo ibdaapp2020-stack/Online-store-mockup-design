@@ -661,6 +661,15 @@ input, select {
   .hero-slide h2 { font-size: 1.45rem; }
   .hero-slide p { font-size: 0.92rem; }
   .hero-slide img { height: 150px; }
+  .hero-category-slide { min-height: 240px; padding: 1.1rem 0.95rem; grid-template-columns: 1.1fr 0.9fr; gap: 0.75rem; }
+  .hero-category-slide h2 { font-size: 1.35rem; }
+  .hero-category-slide p { font-size: 0.88rem; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 0.35rem; }
+  .hero-cta-btn { padding: 0.45rem 0.95rem; font-size: 0.86rem; }
+  .hero-product-collage { height: 135px; max-width: 180px; }
+  .hero-product-main { width: 105px; height: 105px; border-radius: 14px; }
+  .hero-product-sub { width: 60px; height: 60px; border-radius: 10px; }
+  .hero-chips-row { display: none; }
+  .hero-accent-pill { font-size: 0.7rem; padding: 0.15rem 0.5rem; }
   .clinic-banner { grid-template-columns: 1.15fr 0.85fr; padding: 0.9rem; }
   .clinic-banner h2 { font-size: 1.25rem; }
   .clinic-banner img { height: 112px; }
@@ -1548,4 +1557,226 @@ html.a11y-cursor, html.a11y-cursor * {
 .summary-val {
   color: #1e293b;
 }
+
+/* ======================================================== */
+/* Hero Category Marketing Slides (5 Core Showcases)       */
+/* ======================================================== */
+.hero-category-slide {
+  position: relative;
+  overflow: hidden;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.22);
+  min-height: 300px;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 1.25rem;
+  padding: 1.6rem 1.75rem;
+  border-radius: 28px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hero-category-slide:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.28);
+}
+
+.hero-category-slide .hero-content {
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  text-align: right;
+}
+
+.hero-kicker-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 0.35rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.02em;
+}
+
+.hero-category-slide h2 {
+  margin: 0.1rem 0 0.25rem;
+  font-size: 2.15rem;
+  line-height: 1.16;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.hero-category-slide p {
+  margin: 0 0 0.55rem;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 1.02rem;
+  line-height: 1.45;
+  max-width: 520px;
+}
+
+.hero-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 0.7rem 1.45rem;
+  font-weight: 800;
+  font-size: 0.98rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  margin-top: 0.35rem;
+}
+
+.hero-category-slide:hover .hero-cta-btn {
+  transform: translateX(-4px);
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.35);
+}
+
+/* Category Product Stage & Collage */
+.hero-stage {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.hero-accent-pill {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  color: #fef08a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+}
+
+.hero-product-collage {
+  position: relative;
+  width: 100%;
+  max-width: 290px;
+  height: 185px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-product-main {
+  width: 155px;
+  height: 155px;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 20px;
+  padding: 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  z-index: 3;
+  transition: transform 0.3s ease;
+}
+
+.hero-category-slide:hover .hero-product-main {
+  transform: scale(1.04);
+}
+
+.hero-product-main img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.hero-product-sub {
+  position: absolute;
+  width: 88px;
+  height: 88px;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 16px;
+  padding: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  z-index: 2;
+  transition: transform 0.3s ease;
+}
+
+.hero-sub-1 {
+  top: 10px;
+  inset-inline-start: 0;
+  transform: rotate(-6deg);
+}
+
+.hero-sub-2 {
+  bottom: 10px;
+  inset-inline-end: 0;
+  transform: rotate(6deg);
+}
+
+.hero-category-slide:hover .hero-sub-1 {
+  transform: rotate(-9deg) translate(-4px, -2px);
+}
+
+.hero-category-slide:hover .hero-sub-2 {
+  transform: rotate(9deg) translate(4px, 2px);
+}
+
+.hero-product-sub img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.hero-chips-row {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hero-chip {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(4px);
+  color: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.hero-glow {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+.hero-glow-1 {
+  top: -80px;
+  inset-inline-end: -40px;
+}
+.hero-glow-2 {
+  bottom: -90px;
+  inset-inline-start: -40px;
+}
+
 
