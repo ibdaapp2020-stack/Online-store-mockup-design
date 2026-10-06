@@ -104,7 +104,7 @@ service cloud.firestore {
 
     match /attendance/{id} {
       allow read: if isAdmin() || isStaff();
-      allow create: if isStaff();
+      allow create: if isStaff() || isAdmin();
       allow update, delete: if isAdmin();
     }
 

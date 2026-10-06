@@ -173,6 +173,13 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     const current = await getProduct(parts[3])
     if (!current) fail('המוצר לא נמצא')
     const raw = await bodyOf(init)
+    if (raw.stock !== undefined && raw.name === undefined) {
+      const stock = Math.max(0, Math.round(Number(raw.stock) || 0))
+      const updated = { ...current, stock }
+      await saveProduct(updated)
+      void notifyStockChange({ productId: parts[3], name: current.name, previous: current.stock, next: stock })
+      return updated as T
+    }
     let image = String(raw.image || current.image || '')
     const file = init?.body instanceof FormData ? init.body.get('imageFile') : null
     if (file instanceof File && file.size) image = await uploadImage(productImagePath(parts[3], file.name), file)
@@ -189,6 +196,17 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     return { ok: true } as T
   }
 
+  if (url.pathname === '/api/admin/upload' && method === 'POST') {
+    const file = init?.body instanceof FormData ? init.body.get('file') : null
+    if (file instanceof File && file.size) {
+      const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `uploads/${Date.now().toString(36)}-${cleanName}`
+      const url = await uploadImage(path, file)
+      return { url } as T
+    }
+    fail('לא נבחר קובץ תקין')
+  }
+
   if (url.pathname === '/api/admin/categories' && method === 'GET') return (await listCategories()) as T
   if (url.pathname === '/api/admin/categories' && method === 'POST') {
     const raw = await bodyOf(init)
@@ -198,9 +216,11 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     if (rows.some((row) => row.name.trim() === name)) fail('קטגוריה בשם הזה כבר קיימת')
     const id = slug(name) || `cat-${Date.now().toString(36)}`
     if (rows.some((row) => row.id === id)) fail('קטגוריה בשם הזה כבר קיימת')
-    const sort = rows.reduce((max, row) => Math.max(max, row.sort || 0), -1) + 1
-    await saveCategory({ id, name, blurb: String(raw.blurb || name).trim(), sort, active: true })
-    return { id, name, blurb: String(raw.blurb || name).trim(), sort } as T
+    const sort = raw.sort != null && Number.isFinite(Number(raw.sort)) ? Number(raw.sort) : rows.reduce((max, row) => Math.max(max, row.sort || 0), -1) + 1
+    const image = raw.image ? String(raw.image) : undefined
+    const category = { id, name, blurb: String(raw.blurb || name).trim(), sort, image, active: raw.active !== false }
+    await saveCategory(category)
+    return category as T
   }
   if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'categories' && parts[3] && method === 'PATCH') {
     const rows = await listCategories()
@@ -209,7 +229,14 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     const raw = await bodyOf(init)
     const name = String(raw.name ?? current.name).trim()
     if (!name) fail('חסר שם קטגוריה')
-    const next = { ...current, name, blurb: String(raw.blurb ?? current.blurb).trim() }
+    const next = {
+      ...current,
+      name,
+      blurb: String(raw.blurb ?? current.blurb).trim(),
+      sort: raw.sort != null && Number.isFinite(Number(raw.sort)) ? Number(raw.sort) : current.sort,
+      image: raw.image !== undefined ? (raw.image ? String(raw.image) : undefined) : current.image,
+      active: raw.active !== undefined ? Boolean(raw.active) : current.active !== false,
+    }
     await saveCategory(next)
     return next as T
   }
@@ -239,7 +266,9 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
       couponPercent: Number(raw.couponPercent ?? current.couponPercent),
       pointsPer100: Number(raw.pointsPer100 ?? current.pointsPer100),
       clubPercent: Number(raw.clubPercent ?? current.clubPercent),
+      siteDiscountPercent: Number(raw.siteDiscountPercent ?? current.siteDiscountPercent ?? 0),
       showBanner: Boolean(raw.showBanner),
+      slides: Array.isArray(raw.slides) ? raw.slides : (current.slides ?? []),
     }
     delete (next as { smtpPass?: string }).smtpPass
     await setDoc(doc(db(), 'settings', 'store'), next, { merge: true })
@@ -370,6 +399,46 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     const raw = await bodyOf(init)
     await setDoc(doc(db(), 'corrections', parts[3]), raw, { merge: true })
     return { id: parts[3], ...raw } as T
+  }
+  if (url.pathname === '/api/admin/attendance/shift' && method === 'POST') {
+    const raw = await bodyOf(init)
+    const employeeId = String(raw.employeeId || '')
+    const employeeName = String(raw.employeeName || '')
+    const date = String(raw.date || '')
+    const inTime = String(raw.inTime || '09:00')
+    const outTime = String(raw.outTime || '17:00')
+    const note = String(raw.note || 'הזנת מנהל')
+    if (!employeeId || !date) fail('חסר עובד או תאריך')
+    const inIso = new Date(`${date}T${inTime}:00+03:00`).toISOString()
+    const outIso = new Date(`${date}T${outTime}:00+03:00`).toISOString()
+    await addDoc(collection(db(), 'attendance'), {
+      employeeId,
+      employeeName,
+      kind: 'in',
+      at: inIso,
+      note,
+      lat: null,
+      lng: null,
+    })
+    await addDoc(collection(db(), 'attendance'), {
+      employeeId,
+      employeeName,
+      kind: 'out',
+      at: outIso,
+      note,
+      lat: null,
+      lng: null,
+    })
+    return { ok: true } as T
+  }
+  if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'attendance' && parts[3] === 'punch' && parts[4] && method === 'PATCH') {
+    const raw = await bodyOf(init)
+    await setDoc(doc(db(), 'attendance', parts[4]), raw, { merge: true })
+    return { id: parts[4], ...raw } as T
+  }
+  if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'attendance' && parts[3] === 'punch' && parts[4] && method === 'DELETE') {
+    await deleteDoc(doc(db(), 'attendance', parts[4]))
+    return { ok: true } as T
   }
   if (url.pathname === '/api/admin/mail') {
     const snap = await getDocs(collection(db(), 'mailLog'))

@@ -71,7 +71,7 @@ export function watchAdminServices(onData: (rows: ReturnType<typeof serviceFrom>
   )
 }
 
-export function watchAdminCategories(onData: (rows: Array<{ id: string; name: string; blurb: string; sort: number; active?: boolean }>) => void, onError: (error: Error) => void) {
+export function watchAdminCategories(onData: (rows: Array<{ id: string; name: string; blurb: string; sort: number; active?: boolean; image?: string }>) => void, onError: (error: Error) => void) {
   return onSnapshot(
     collection(db(), 'categories'),
     (snap) => {
@@ -84,6 +84,7 @@ export function watchAdminCategories(onData: (rows: Array<{ id: string; name: st
               name: String(data.name || ''),
               blurb: String(data.blurb || ''),
               sort: Number(data.sort) || 0,
+              image: String(data.image || ''),
               active: data.active !== false,
             }
           })

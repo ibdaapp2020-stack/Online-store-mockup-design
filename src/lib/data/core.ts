@@ -63,6 +63,7 @@ export function settingsFrom(data: DocumentData | undefined): ShopSettings {
     tagline: String(data?.tagline || 'ORTHO & MOBILITY'),
     banner: String(data?.banner || ''),
     showBanner: Boolean(data?.showBanner),
+    siteDiscountPercent: Number(data?.siteDiscountPercent) || 0,
     disclaimer: String(data?.disclaimer || 'האתר אינו בית מרקחת ואינו מחליף ייעוץ רפואי.'),
     shippingFee: Number(data?.shippingFee ?? 29),
     freeFrom: Number(data?.freeFrom ?? 199),
@@ -75,6 +76,7 @@ export function settingsFrom(data: DocumentData | undefined): ShopSettings {
     notifyEmail: String(data?.notifyEmail || ''),
     smtpUser: String(data?.smtpUser || ''),
     smtpConfigured: Boolean(data?.smtpConfigured),
+    slides: Array.isArray(data?.slides) ? data.slides : undefined,
   }
 }
 

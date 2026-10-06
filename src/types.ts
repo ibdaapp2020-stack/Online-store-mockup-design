@@ -33,11 +33,24 @@ export function optionStock(product: Product, pick: { size?: string; color?: str
     .reduce((sum, row) => sum + row.stock, 0)
 }
 
+export type HeroSlide = {
+  id: string
+  title: string
+  subtitle: string
+  badge?: string
+  link: string
+  image?: string
+  videoUrl?: string
+  bgColor?: string
+  active?: boolean
+}
+
 export type ShopSettings = {
   storeName: string
   tagline: string
   banner: string
   showBanner: boolean
+  siteDiscountPercent?: number
   disclaimer: string
   shippingFee: number
   freeFrom: number
@@ -51,6 +64,7 @@ export type ShopSettings = {
   smtpUser: string
   smtpPass?: string
   smtpConfigured?: boolean
+  slides?: HeroSlide[]
 }
 
 export type Category = {

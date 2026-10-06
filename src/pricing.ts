@@ -13,19 +13,24 @@ export type Quote = {
 export function quote(
   subtotal: number,
   couponOn: boolean,
-  rules: { shippingFee: number; freeFrom: number; couponPercent: number } = {
+  rules: { shippingFee: number; freeFrom: number; couponPercent: number; siteDiscountPercent?: number } = {
     shippingFee: SHIPPING_FEE,
     freeFrom: FREE_FROM,
     couponPercent: COUPON_RATE * 100,
+    siteDiscountPercent: 0,
   },
 ): Quote {
-  const discount = couponOn ? Math.round(subtotal * (rules.couponPercent / 100)) : 0
+  const couponDiscount = couponOn ? Math.round(subtotal * (rules.couponPercent / 100)) : 0
+  const siteDiscount = (rules.siteDiscountPercent && rules.siteDiscountPercent > 0)
+    ? Math.round((subtotal - couponDiscount) * (rules.siteDiscountPercent / 100))
+    : 0
+  const discount = couponDiscount + siteDiscount
   const shipping = subtotal === 0 || subtotal >= rules.freeFrom ? 0 : rules.shippingFee
   return {
     subtotal,
     discount,
     shipping,
-    total: subtotal - discount + shipping,
+    total: Math.max(0, subtotal - discount + shipping),
   }
 }
 

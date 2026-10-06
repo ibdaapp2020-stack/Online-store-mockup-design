@@ -16,7 +16,7 @@ const COVER: Record<string, string> = {
 
 export function HomePage() {
   useTitle('בית')
-  const { products, categories, ready, error } = useStore()
+  const { products, categories, ready, error, settings } = useStore()
   const newest = products
   const best = [...products].sort((a, b) => Number(b.badge === 'popular') - Number(a.badge === 'popular') || b.reviews - a.reviews)
   const recommended = [...products]
@@ -27,11 +27,25 @@ export function HomePage() {
   const catsRef = useRef<HTMLDivElement>(null)
   const [catEnds, setCatEnds] = useState({ prev: false, next: false })
   const [slide, setSlide] = useState(0)
-  const slides = [
-    { id: 'new', to: '/catalog?badge=new' },
-    { id: 'clinic', to: '/account#appointments' },
-    { id: 'kit', to: '/p/kit' },
-  ]
+
+  const activeCustomSlides = (settings.slides || []).filter((item) => item.active !== false)
+  const slides = activeCustomSlides.length > 0
+    ? activeCustomSlides.map((item) => ({
+        id: item.id,
+        to: item.link || '/catalog',
+        title: item.title,
+        subtitle: item.subtitle,
+        badge: item.badge,
+        image: item.image,
+        videoUrl: item.videoUrl,
+        bgColor: item.bgColor,
+        custom: true as const,
+      }))
+    : [
+        { id: 'new', to: '/catalog?badge=new', custom: false as const },
+        { id: 'clinic', to: '/account#appointments', custom: false as const },
+        { id: 'kit', to: '/p/kit', custom: false as const },
+      ]
 
   useEffect(() => {
     const timer = window.setInterval(() => setSlide((current) => (current + 1) % slides.length), 5000)
@@ -79,6 +93,8 @@ export function HomePage() {
   }
 
   function cover(id: string) {
+    const cat = categories.find((item) => item.id === id)
+    if (cat?.image) return cat.image
     const product = products.find((item) => item.id === COVER[id]) || products.find((item) => item.category === id)
     if (product) return productImage(product)
     const file = COVER[id]
@@ -92,37 +108,78 @@ export function HomePage() {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9.4 6.4 15 12l-5.6 5.6L8 16.2 12.2 12 8 7.8z" /></svg>
         </button>
         <div className="hero-track" style={{ transform: `translateX(${slide * 100}%)` }}>
-          <Link className="hero-slide" to={slides[0].to}>
-            <div>
-              <p className="hero-kicker">PRO PHARM</p>
-              <h2>מוצרים חדשים</h2>
-              <p>תמיכות, הליכה וציוד ביתי חדש במדף.</p>
-              <span className="hero-cta">לכל המוצרים</span>
-            </div>
-            <img src="/products/walker-std.jpg" alt="" />
-          </Link>
-          <Link className="hero-slide hero-clinic" to={slides[1].to}>
-            <div>
-              <p className="hero-kicker">המרפאות</p>
-              <h2>קובעים תור</h2>
-              <p>מדידה וייעוץ במרפאה, ובאותו ביקור רואים את המוצרים.</p>
-              <span className="hero-cta">לקביעת תור</span>
-            </div>
-            <img src="/products/knee-sleeve.jpg" alt="" />
-          </Link>
-          <Link className="hero-slide hero-sale" to={slides[2].to}>
-            <div>
-              <p className="hero-kicker">מבצע</p>
-              <h2>ערכת עזרה ראשונה</h2>
-              <p>במחיר מוזל לזמן מוגבל.</p>
-              <span className="hero-cta">לערכה</span>
-            </div>
-            <div className="hero-deal">
-              <img src={kit ? productImage(kit) : '/products/kit.png'} alt="" />
-              <span className="deal-now">{kit?.price ?? 89} ₪</span>
-              <span className="deal-was">{kit?.compareAt ?? 119} ₪</span>
-            </div>
-          </Link>
+          {slides.map((item) => {
+            if (item.custom) {
+              return (
+                <Link
+                  key={item.id}
+                  className="hero-slide"
+                  to={item.to}
+                  style={item.bgColor ? { background: item.bgColor } : undefined}
+                >
+                  <div>
+                    {item.badge ? <p className="hero-kicker">{item.badge}</p> : null}
+                    <h2>{item.title}</h2>
+                    <p>{item.subtitle}</p>
+                    <span className="hero-cta">לפרטים וקנייה</span>
+                  </div>
+                  {item.videoUrl ? (
+                    <video
+                      src={item.videoUrl}
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      style={{ maxWidth: '260px', maxHeight: '240px', borderRadius: '14px', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <img src={item.image || '/logo.jpg'} alt={item.title} />
+                  )}
+                </Link>
+              )
+            }
+            if (item.id === 'new') {
+              return (
+                <Link key={item.id} className="hero-slide" to={item.to}>
+                  <div>
+                    <p className="hero-kicker">PRO PHARM</p>
+                    <h2>מוצרים חדשים</h2>
+                    <p>תמיכות, הליכה וציוד ביתי חדש במדף.</p>
+                    <span className="hero-cta">לכל המוצרים</span>
+                  </div>
+                  <img src="/products/walker-std.jpg" alt="" />
+                </Link>
+              )
+            }
+            if (item.id === 'clinic') {
+              return (
+                <Link key={item.id} className="hero-slide hero-clinic" to={item.to}>
+                  <div>
+                    <p className="hero-kicker">המרפאות</p>
+                    <h2>קובעים תור</h2>
+                    <p>מדידה וייעוץ במרפאה, ובאותו ביקור רואים את המוצרים.</p>
+                    <span className="hero-cta">לקביעת תור</span>
+                  </div>
+                  <img src="/products/knee-sleeve.jpg" alt="" />
+                </Link>
+              )
+            }
+            return (
+              <Link key={item.id} className="hero-slide hero-sale" to={item.to}>
+                <div>
+                  <p className="hero-kicker">מבצע</p>
+                  <h2>ערכת עזרה ראשונה</h2>
+                  <p>במחיר מוזל לזמן מוגבל.</p>
+                  <span className="hero-cta">לערכה</span>
+                </div>
+                <div className="hero-deal">
+                  <img src={kit ? productImage(kit) : '/products/kit.png'} alt="" />
+                  <span className="deal-now">{kit?.price ?? 89} ₪</span>
+                  <span className="deal-was">{kit?.compareAt ?? 119} ₪</span>
+                </div>
+              </Link>
+            )
+          })}
         </div>
         <button type="button" className="cat-arrow hero-arrow cat-next" aria-label="שקף הבא" onClick={() => moveSlide('next')}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M14.6 6.4 9 12l5.6 5.6L16 16.2 11.8 12 16 7.8z" /></svg>

@@ -14,6 +14,8 @@ import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
 import { AdminDashboard, AdminDenied, AdminLogin, AdminMissing, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
 import { AdminCategories, AdminClub, AdminEmployees, AdminServices, AdminStaff } from './pages/admin-ops'
+import { AdminInventory } from './pages/admin-inventory'
+import { AdminBanner } from './pages/admin-banner'
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' }
@@ -70,7 +72,9 @@ function PortalRoutes() {
       <Route path="/" element={<AdminShell />}>
         <Route index element={<AdminDashboard />} />
         <Route path="products" element={<AdminProducts />} />
+        <Route path="inventory" element={<AdminInventory />} />
         <Route path="categories" element={<AdminCategories />} />
+        <Route path="banner" element={<AdminBanner />} />
         <Route path="products/new" element={<AdminProductForm />} />
         <Route path="products/:id" element={<AdminProductForm />} />
         <Route path="orders" element={<AdminOrders />} />

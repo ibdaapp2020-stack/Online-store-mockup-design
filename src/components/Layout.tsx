@@ -124,7 +124,7 @@ export function Layout() {
         </div>
       ) : null}
       <AccessibilityWidget />
-      <a className="whatsapp" href="https://wa.me/972505959596" target="_blank" rel="noreferrer" aria-label="וואטסאפ">
+      <a className="whatsapp" href="https://wa.me/972507111717" target="_blank" rel="noreferrer" aria-label="וואטסאפ">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path
             fill="currentColor"
