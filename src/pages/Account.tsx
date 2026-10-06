@@ -71,6 +71,11 @@ export function AccountPage() {
   }
 
   useEffect(() => {
+    if (!member || window.location.hash !== '#appointments') return
+    document.getElementById('appointments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [member])
+
+  useEffect(() => {
     void accountFetch<{ role?: string }>('/api/session')
       .then((data) => {
         if (data.role === 'admin') window.location.assign(portalUrl('/'))
@@ -145,6 +150,7 @@ export function AccountPage() {
         <div className="offer-banner">
           <strong>הירשמו וקבלו 10% לקנייה הבאה</strong>
           <p>ההטבה נשמרת בחשבון החדש ומופעלת עם הקופון WELCOME10.</p>
+          <p>אחרי הכניסה אפשר גם לקבוע תור למרפאה.</p>
         </div>
         <h1>{mode === 'register' ? 'הרשמה' : 'כניסה'}</h1>
         <div className="choice-row">
@@ -252,7 +258,7 @@ export function AccountPage() {
             </p>
           ) : null}
         </article>
-        <form className="panel form" onSubmit={book}>
+        <form id="appointments" className="panel form" onSubmit={book}>
           <h2>קביעת תור</h2>
           <label>
             שירות
