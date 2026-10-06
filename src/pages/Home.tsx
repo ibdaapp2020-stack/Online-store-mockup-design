@@ -1,253 +1,315 @@
-import { Link, useNavigate } from 'react-router-dom'
-import { SetupCard } from '../components/SetupCard'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ProductCard } from '../components/ProductCard'
-import { useEffect, useState } from 'react'
-import { photos } from '../catalog'
-import { banners, blueprintFor, setups } from '../data'
-import { money, quote, setupRateLabel } from '../pricing'
+import { SkeletonGrid, useTitle } from '../components/ui'
+import { productImage } from '../data'
 import { useStore } from '../store'
 
-export function Home() {
-  const { audience, products, applySetup, pricesOpen } = useStore()
-  const navigate = useNavigate()
-  if (!audience) return null
+const COVER: Record<string, string> = {
+  'first-aid': 'kit',
+  monitors: 'thermo',
+  vitamins: 'vd',
+  hygiene: 'gel',
+  ortho: 'knee-sleeve',
+  home: 'walker-std',
+}
 
-  const heroSetup = audience === 'business' ? 'desk' : 'pocket'
-  const heroQty = audience === 'business' ? 5 : 1
-  const heroLines = blueprintFor(heroSetup, audience).map((id) => ({ productId: id, qty: heroQty }))
-  const heroQuote = quote(products, heroLines, audience, 'standard')
-  const picks = products
-    .filter((product) => product.active)
-    .slice()
-    .sort((a, b) => {
-      const score = (fit: typeof a.fit) => (fit === audience ? 2 : fit === 'all' ? 1 : 0)
-      const diff = score(b.fit) - score(a.fit)
-      return diff !== 0 ? diff : b.reviews - a.reviews
+export function HomePage() {
+  useTitle('בית')
+  const { products, categories, ready, error, settings } = useStore()
+  const newest = products
+  const best = [...products].sort((a, b) => Number(b.badge === 'popular') - Number(a.badge === 'popular') || b.reviews - a.reviews)
+  const recommended = [...products]
+    .filter((product) => !best.slice(0, 10).some((item) => item.id === product.id))
+    .sort((a, b) => b.rating - a.rating || b.reviews - a.reviews)
+  const [shelfSize, setShelfSize] = useState({ newest: 10, best: 10, recommended: 10 })
+  const kit = products.find((product) => product.id === 'kit')
+  const catsRef = useRef<HTMLDivElement>(null)
+  const [catEnds, setCatEnds] = useState({ prev: false, next: false })
+  const [slide, setSlide] = useState(0)
+
+  const activeCustomSlides = (settings.slides || []).filter((item) => item.active !== false)
+  const slides = activeCustomSlides.length > 0
+    ? activeCustomSlides.map((item) => ({
+        id: item.id,
+        to: item.link || '/catalog',
+        title: item.title,
+        subtitle: item.subtitle,
+        badge: item.badge,
+        image: item.image,
+        videoUrl: item.videoUrl,
+        bgColor: item.bgColor,
+        custom: true as const,
+      }))
+    : [
+        { id: 'new', to: '/catalog?badge=new', custom: false as const },
+        { id: 'clinic', to: '/appointments', custom: false as const },
+        { id: 'kit', to: '/p/kit', custom: false as const },
+      ]
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setSlide((current) => (current + 1) % slides.length), 5000)
+    return () => window.clearInterval(timer)
+  }, [slides.length])
+
+  function measureCats() {
+    const node = catsRef.current
+    if (!node) return
+    const box = node.getBoundingClientRect()
+    const tiles = [...node.querySelectorAll<HTMLElement>('.cat-tile')]
+    const first = tiles[0]?.getBoundingClientRect()
+    const last = tiles[tiles.length - 1]?.getBoundingClientRect()
+    setCatEnds({
+      prev: Boolean(first && first.right > box.right + 8),
+      next: Boolean(last && last.left < box.left - 8),
     })
-    .slice(0, 8)
+  }
 
-  const steps =
-    audience === 'business'
-      ? [
-          ['01', 'בוחרים ציוד', 'אותן קטגוריות, מחיר לפני מע״מ.'],
-          ['02', 'קובעים כמות', 'חמש יחידות וכבר נכנסת הנחת כמות.'],
-          ['03', 'משכפלים עמדה', 'מחשב, מקלדת, עכבר ומסך בכמות אחת.'],
-          ['04', 'מזמינים או מבקשים הצעה', 'הזמנה מיידית או הצעת מחיר לחשבונית.'],
-        ]
-      : [
-          ['01', 'בוחרים קטגוריה', 'סלולר, מחשבים, גיימינג או אביזרים.'],
-          ['02', 'מוסיפים לסל', 'כמו בכל חנות שאתם כבר מכירים.'],
-          ['03', 'משלימים את המד', 'ארבעה חלקים נועלים הנחה ומשלוח.'],
-          ['04', 'משלמים כרגיל', 'אשראי, ביט, או עד 12 תשלומים.'],
-        ]
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(measureCats)
+    const node = catsRef.current
+    if (!node) return () => window.cancelAnimationFrame(frame)
+    node.addEventListener('scroll', measureCats, { passive: true })
+    window.addEventListener('resize', measureCats)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      node.removeEventListener('scroll', measureCats)
+      window.removeEventListener('resize', measureCats)
+    }
+  }, [categories.length])
 
-  const tiles: { title: string; to: string; image: string; featured?: boolean }[] = [
-    { title: 'חנות Apple', to: '/c/mobile?sub=iphone', image: photos.iphone18, featured: true },
-    { title: 'מק', to: '/c/computer?sub=mac', image: photos.macbookAir },
-    { title: 'מחשבים', to: '/c/computer', image: photos.macbookPro },
-    { title: 'גיימינג', to: '/c/gaming', image: photos.ps5 },
-    { title: 'סמארטפונים', to: '/c/mobile', image: photos.iphone17 },
-    { title: 'טאבלטים', to: '/c/computer?sub=tablet', image: photos.ipad },
-    { title: 'אביזרים', to: '/c/accessories', image: photos.airpods },
-    { title: 'שעונים', to: '/c/accessories?sub=wear', image: photos.watch },
-    { title: 'מעבדה עד הבית', to: '/lab', image: photos.iphone16 },
-    ...(audience === 'business' ? [{ title: 'ציוד מחלקות', to: '/c/enterprise', image: photos.macbookPro }] : []),
-  ]
+  function moveSlide(direction: 'next' | 'prev') {
+    setSlide((current) => {
+      const count = slides.length
+      return direction === 'next' ? (current + 1) % count : (current - 1 + count) % count
+    })
+  }
+
+  function moveCats(direction: 'next' | 'prev') {
+    const node = catsRef.current
+    if (!node) return
+    const step = Math.max(160, Math.round(node.clientWidth * 0.72))
+    node.scrollBy({ left: direction === 'next' ? -step : step, behavior: 'smooth' })
+  }
+
+  function cover(id: string) {
+    const cat = categories.find((item) => item.id === id)
+    if (cat?.image) return cat.image
+    const product = products.find((item) => item.id === COVER[id]) || products.find((item) => item.category === id)
+    if (product) return productImage(product)
+    const file = COVER[id]
+    return file ? `/products/${file}.jpg` : '/logo.jpg'
+  }
 
   return (
-    <>
-      <section className="wrap mosaic" aria-label="קטגוריות">
-        {tiles.map((tile) => (
-          <Link key={tile.title} to={tile.to} className={tile.featured ? 'featured' : ''}>
-            {tile.featured ? (
-              <>
-                <img src={tile.image} alt="" />
-                <strong>{tile.title}</strong>
-              </>
-            ) : (
-              <>
-                <strong>{tile.title}</strong>
-                <img src={tile.image} alt="" />
-                <span>לקטגוריה</span>
-              </>
-            )}
-          </Link>
-        ))}
-      </section>
-
-      <section className="hero-band">
-        <div className="wrap hero">
-          <div>
-            <p className="kicker">{audience === 'business' ? 'מחירון מחלקה' : 'מד ההשלמה'}</p>
-            <h1>{audience === 'business' ? 'אותה חנות. מחירון של מחלקה.' : 'החנות שקונים בה כמו תמיד.'}</h1>
-            <p className="lead">
-              {audience === 'business'
-                ? 'מחיר לפני מע״מ, הנחת כמות, ושכפול עמדה לכל העובדים בלחיצה. בלי קטלוג אחר ובלי ללמוד אתר חדש.'
-                : 'קטגוריה, מוצר, סל, תשלום. מד ההשלמה יושב על הסל, וכשהוא מלא ננעלים 8% ומשלוח חינם.'}
-            </p>
-            <div className="hero-actions">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!pricesOpen && audience === 'business'}
-                onClick={() => {
-                  applySetup(heroSetup, heroQty)
-                  navigate('/cart')
-                }}
-              >
-                {audience === 'business' ? 'הכן 5 עמדות עבודה' : 'התחל מהכיס המושלם'}
-              </button>
-              <Link className="btn btn-ghost" to="/c/all">
-                לכל המוצרים
+    <div>
+      <section className="hero-slider" aria-label="כניסה">
+        <button type="button" className="cat-arrow hero-arrow cat-prev" aria-label="שקף קודם" onClick={() => moveSlide('prev')}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9.4 6.4 15 12l-5.6 5.6L8 16.2 12.2 12 8 7.8z" /></svg>
+        </button>
+        <div className="hero-track" style={{ transform: `translateX(${slide * 100}%)` }}>
+          {slides.map((item) => {
+            if (item.custom) {
+              return (
+                <Link
+                  key={item.id}
+                  className="hero-slide"
+                  to={item.to}
+                  style={item.bgColor ? { background: item.bgColor } : undefined}
+                >
+                  <div>
+                    {item.badge ? <p className="hero-kicker">{item.badge}</p> : null}
+                    <h2>{item.title}</h2>
+                    <p>{item.subtitle}</p>
+                    <span className="hero-cta">לפרטים וקנייה</span>
+                  </div>
+                  {item.videoUrl ? (
+                    <video
+                      src={item.videoUrl}
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      style={{ maxWidth: '260px', maxHeight: '240px', borderRadius: '14px', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <img src={item.image || '/logo.jpg'} alt={item.title} />
+                  )}
+                </Link>
+              )
+            }
+            if (item.id === 'new') {
+              return (
+                <Link key={item.id} className="hero-slide" to={item.to}>
+                  <div>
+                    <p className="hero-kicker">PRO PHARM</p>
+                    <h2>מוצרים חדשים</h2>
+                    <p>תמיכות, הליכה וציוד ביתי חדש במדף.</p>
+                    <span className="hero-cta">לכל המוצרים</span>
+                  </div>
+                  <img src="/products/walker-std.jpg" alt="" />
+                </Link>
+              )
+            }
+            if (item.id === 'clinic') {
+              return (
+                <Link key={item.id} className="hero-slide hero-clinic" to={item.to}>
+                  <div>
+                    <p className="hero-kicker">מרפאת מומחים · כל יום 09:00–19:00</p>
+                    <h2>קביעת תור למרפאה</h2>
+                    <p>פיזיותרפיה · טיפול בתא לחץ · טיפול פריצות דיסק</p>
+                    <span className="hero-cta">לקביעת תור</span>
+                  </div>
+                  <div className="clinic-hero-visual">
+                    <span className="clinic-badge-pill">🩺 פיזיותרפיה</span>
+                    <span className="clinic-badge-pill">💨 תא לחץ (HBOT)</span>
+                    <span className="clinic-badge-pill">🦴 פריצות דיסק</span>
+                  </div>
+                </Link>
+              )
+            }
+            return (
+              <Link key={item.id} className="hero-slide hero-sale" to={item.to}>
+                <div>
+                  <p className="hero-kicker">מבצע</p>
+                  <h2>ערכת עזרה ראשונה</h2>
+                  <p>במחיר מוזל לזמן מוגבל.</p>
+                  <span className="hero-cta">לערכה</span>
+                </div>
+                <div className="hero-deal">
+                  <img src={kit ? productImage(kit) : '/products/kit.png'} alt="" />
+                  <span className="deal-now">{kit?.price ?? 89} ₪</span>
+                  <span className="deal-was">{kit?.compareAt ?? 119} ₪</span>
+                </div>
               </Link>
-            </div>
-          </div>
-          <div className="receipt">
-            <span className="seal">{setupRateLabel(audience)} נעול</span>
-            <p className="eyebrow">{audience === 'business' ? '5 עמדות עבודה' : 'הכיס המושלם'}</p>
-            <div className="rows">
-              {pricesOpen ? (
-                <>
-                  {heroQuote.lines.map((line) => (
-                    <div className="row" key={line.product.id}>
-                      <span>
-                        {line.product.name}
-                        {line.qty > 1 ? ` × ${line.qty}` : ''}
-                      </span>
-                      <span>{money(line.list * line.qty)}</span>
-                    </div>
-                  ))}
-                  {heroQuote.volumeSaved > 0 && (
-                    <div className="row">
-                      <span>הנחת כמות</span>
-                      <span className="saving">−{money(heroQuote.volumeSaved)}</span>
-                    </div>
-                  )}
-                  {heroQuote.discount > 0 && (
-                    <div className="row">
-                      <span>הנחת השלמה</span>
-                      <span className="saving">−{money(heroQuote.discount)}</span>
-                    </div>
-                  )}
-                  <div className="row">
-                    <span>משלוח</span>
-                    <span>{heroQuote.shipping === 0 ? 'חינם' : money(heroQuote.shipping)}</span>
-                  </div>
-                  {audience === 'business' && (
-                    <div className="row">
-                      <span>מע״מ 17%</span>
-                      <span>{money(heroQuote.vat)}</span>
-                    </div>
-                  )}
-                  <div className="row total">
-                    <span>לתשלום</span>
-                    <span>{money(heroQuote.total)}</span>
-                  </div>
-                </>
-              ) : (
-                heroQuote.lines.map((line) => (
-                  <div className="row" key={line.product.id}>
-                    <span>{line.product.name}</span>
-                  </div>
-                ))
-              )}
-            </div>
-            <Link to="/cart" className="text-link" onClick={() => applySetup(heroSetup, heroQty)}>
-              ככה זה נראה בסל
-            </Link>
-          </div>
+            )
+          })}
         </div>
-      </section>
-
-      <Banner />
-
-      <section className="wrap block" id="setups">
-        <div className="sec-head">
-          <h2>{audience === 'business' ? 'שכפול עמדה' : 'מד ההשלמה'}</h2>
-          <p>
-            {audience === 'business'
-              ? 'בוחרים כמה עמדות, והחנות שמה את אותה כמות על כל חלק בערכה. הנחת כמות נכנסת לבד, וערכה מלאה מוסיפה עוד 4%.'
-              : 'כל סטאפ בנוי מארבעה חלקים. כשכולם בסל, ננעלת הנחה של 8% על הערכה ומשלוח חינם. אפשר גם להשלים חלק-חלק.'}
-          </p>
-        </div>
-        <div className="setup-grid">
-          {setups.map((setup) => (
-            <SetupCard key={setup.id} setup={setup} />
+        <button type="button" className="cat-arrow hero-arrow cat-next" aria-label="שקף הבא" onClick={() => moveSlide('next')}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M14.6 6.4 9 12l5.6 5.6L16 16.2 11.8 12 16 7.8z" /></svg>
+        </button>
+        <div className="hero-dots">
+          {slides.map((item, index) => (
+            <button key={item.id} type="button" className={slide === index ? 'on' : ''} aria-label={`שקף ${index + 1}`} onClick={() => setSlide(index)} />
           ))}
         </div>
       </section>
 
-      <section className="wrap block">
-        <div className="sec-head">
-          <h2>{audience === 'business' ? 'ציוד שעסקים לוקחים קודם' : 'מה שקונים עכשיו'}</h2>
-          <Link to="/c/all">לכל הקטלוג</Link>
+      <section className="home-cats">
+        <div className="section-head">
+          <h2>קטגוריות</h2>
+          <Link to="/catalog">לכל הקטלוג</Link>
         </div>
-        <div className="grid">
-          {picks.map((product) => (
+        {!ready ? <p className="muted">טוען קטגוריות...</p> : null}
+        {error ? <p className="form-errors">{error}</p> : null}
+        {ready && !error && categories.length === 0 ? <p className="muted">עדיין אין קטגוריות.</p> : null}
+        <div className="cat-rail">
+          <button type="button" className="cat-arrow cat-prev" aria-label="קטגוריות קודמות" disabled={!catEnds.prev} onClick={() => moveCats('prev')}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9.4 6.4 15 12l-5.6 5.6L8 16.2 12.2 12 8 7.8z" /></svg>
+          </button>
+          <div className="cat-showcase" ref={catsRef}>
+            {categories.map((category) => (
+              <Link key={category.id} className="cat-tile" to={`/catalog?cat=${category.id}`}>
+                <img src={cover(category.id)} alt="" />
+                <strong>{category.name}</strong>
+              </Link>
+            ))}
+          </div>
+          <button type="button" className="cat-arrow cat-next" aria-label="קטגוריות נוספות" disabled={!catEnds.next} onClick={() => moveCats('next')}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M14.6 6.4 9 12l5.6 5.6L16 16.2 11.8 12 16 7.8z" /></svg>
+          </button>
+        </div>
+      </section>
+
+      <Link className="clinic-banner" to="/appointments">
+        <div>
+          <p className="hero-kicker">שעות פעילות: כל יום מ־09:00 עד 19:00</p>
+          <h2>קביעת תור למרפאה</h2>
+          <p>3 טיפולים מקצועיים בהתאמה אישית: פיזיותרפיה · טיפול בתא לחץ · טיפול פריצות דיסק</p>
+          <span className="hero-cta">לקביעת תור בקליק ←</span>
+        </div>
+        <div className="clinic-banner-visual">
+          <div className="clinic-badge-clock">⏰ פתוח כל יום 09:00–19:00</div>
+          <div className="clinic-treatments-tags">
+            <span className="clinic-tag-pill">🩺 פיזיותרפיה</span>
+            <span className="clinic-tag-pill">💨 תא לחץ (HBOT)</span>
+            <span className="clinic-tag-pill">🦴 פריצות דיסק</span>
+          </div>
+        </div>
+      </Link>
+
+      <section>
+        <div className="section-head">
+          <h2>נוספו עכשיו</h2>
+          <Link to="/catalog">לקטלוג</Link>
+        </div>
+        {ready ? (
+          <>
+            <div className="product-grid">
+              {newest.slice(0, shelfSize.newest).map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+            {newest.length > shelfSize.newest ? (
+              <button type="button" className="btn secondary more-products" onClick={() => setShelfSize((current) => ({ ...current, newest: current.newest + 10 }))}>
+                הצג עוד
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <SkeletonGrid />
+        )}
+      </section>
+
+      <section>
+        <div className="section-head">
+          <h2>הכי נמכר</h2>
+          <Link to="/catalog?badge=popular">לכל הנמכרים</Link>
+        </div>
+        {ready ? (
+          <>
+            <div className="product-grid">
+              {best.slice(0, shelfSize.best).map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+            {best.length > shelfSize.best ? (
+              <button type="button" className="btn secondary more-products" onClick={() => setShelfSize((current) => ({ ...current, best: current.best + 10 }))}>
+                הצג עוד
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <SkeletonGrid />
+        )}
+      </section>
+
+      <Link className="club-banner" to="/account">
+        <img src="/products/sleep-pillow.jpg" alt="" />
+        <div>
+          <p className="hero-kicker">מועדון לקוחות</p>
+          <h2>10% לקנייה הבאה</h2>
+          <p>נרשמים לאזור האישי ומקבלים את ההטבה בחשבון.</p>
+          <span className="hero-cta">להרשמה</span>
+        </div>
+      </Link>
+
+      <section>
+        <div className="section-head">
+          <h2>מוצרים מומלצים</h2>
+          <Link to="/catalog?sort=rating">לפי דירוג</Link>
+        </div>
+        <div className="product-grid">
+          {recommended.slice(0, shelfSize.recommended).map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>
+        {recommended.length > shelfSize.recommended ? (
+          <button type="button" className="btn secondary more-products" onClick={() => setShelfSize((current) => ({ ...current, recommended: current.recommended + 10 }))}>
+            הצג עוד
+          </button>
+        ) : null}
       </section>
-
-      <section className="wrap block">
-        <div className="sec-head">
-          <h2>ארבעה צעדים, בלי הפתעות</h2>
-        </div>
-        <div className="steps">
-          {steps.map(([index, title, text]) => (
-            <article key={index} className="step">
-              <b>{index}</b>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-        <div className="trust">
-          {[
-            ['משלוח', 'עד הבית, אקספרס או איסוף'],
-            ['אחריות', 'עד שנתיים על מכשירים נבחרים'],
-            ['החזרה', '14 יום על אביזרים'],
-            ['תשלום', audience === 'business' ? 'שוטף +30 או אשראי' : 'אשראי, ביט או תשלומים'],
-          ].map(([title, text]) => (
-            <article key={title}>
-              <strong>{title}</strong>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-    </>
-  )
-}
-
-function Banner() {
-  const [index, setIndex] = useState(0)
-  useEffect(() => {
-    const timer = window.setInterval(() => setIndex((current) => (current + 1) % banners.length), 5000)
-    return () => window.clearInterval(timer)
-  }, [])
-  const slide = banners[index]
-
-  return (
-    <section className="banner" aria-roledescription="carousel">
-      {banners.map((item, itemIndex) => (
-        <img key={item.to} src={item.image} alt="" className={itemIndex === index ? 'on' : ''} />
-      ))}
-      <div className="wrap banner-copy">
-        <p className="kicker">{slide.kicker}</p>
-        <h2>{slide.title}</h2>
-        <p>{slide.text}</p>
-        <div className="hero-actions">
-          <Link className="btn btn-primary" to={slide.to}>
-            למוצר
-          </Link>
-        </div>
-        <div className="dots">
-          {banners.map((item, itemIndex) => (
-            <button key={item.to} type="button" className={itemIndex === index ? 'on' : ''} aria-label={item.title} onClick={() => setIndex(itemIndex)} />
-          ))}
-        </div>
-      </div>
-    </section>
+    </div>
   )
 }
