@@ -13,7 +13,7 @@ import { ProductPage } from './pages/Product'
 import { TrackPage } from './pages/Track'
 import { StoreProvider } from './store'
 import { AdminDashboard, AdminDenied, AdminLogin, AdminMissing, AdminOrders, AdminProductForm, AdminProducts, AdminSettings, AdminShell } from './pages/admin'
-import { AdminCategories, AdminClub, AdminEmployees, AdminServices, AdminStaff } from './pages/admin-ops'
+import { AdminCategories, AdminClub, AdminEmployees, AdminServices } from './pages/admin-ops'
 import { AdminInventory } from './pages/admin-inventory'
 import { AdminBanner } from './pages/admin-banner'
 
@@ -83,7 +83,7 @@ function PortalRoutes() {
         <Route path="settings" element={<AdminSettings />} />
         <Route path="services" element={<AdminServices />} />
         <Route path="employees" element={<AdminEmployees />} />
-        <Route path="staff" element={<AdminStaff />} />
+        <Route path="staff" element={<Navigate to="/employees" replace />} />
         <Route path="*" element={<AdminMissing />} />
       </Route>
       <Route path="/admin/login" element={<Navigate to="/login" replace />} />

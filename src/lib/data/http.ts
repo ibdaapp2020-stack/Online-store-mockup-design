@@ -431,6 +431,25 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     })
     return { ok: true } as T
   }
+  if (url.pathname === '/api/admin/attendance/punch' && method === 'POST') {
+    const raw = await bodyOf(init)
+    const employeeId = String(raw.employeeId || '')
+    const employeeName = String(raw.employeeName || '')
+    const kind = raw.kind === 'out' ? 'out' : raw.kind === 'note' ? 'note' : 'in'
+    const at = String(raw.at || new Date().toISOString())
+    const note = String(raw.note || '')
+    if (!employeeId) fail('חסר מזהה עובד')
+    const ref = await addDoc(collection(db(), 'attendance'), {
+      employeeId,
+      employeeName,
+      kind,
+      at,
+      note,
+      lat: null,
+      lng: null,
+    })
+    return { id: ref.id, ok: true } as T
+  }
   if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'attendance' && parts[3] === 'punch' && parts[4] && method === 'PATCH') {
     const raw = await bodyOf(init)
     await setDoc(doc(db(), 'attendance', parts[4]), raw, { merge: true })
@@ -685,9 +704,9 @@ async function createEmployee(raw: Record<string, unknown>) {
     authEmail: email,
     authGeneration: 1,
     active: true,
-    payMode: 'hour' as const,
-    hourlyRate: 0,
-    globalPay: 0,
+    payMode: raw.payMode === 'global' ? ('global' as const) : ('hour' as const),
+    hourlyRate: Number(raw.hourlyRate) || 0,
+    globalPay: Number(raw.globalPay) || 0,
   }
   await setDoc(doc(db(), 'employees', id), employee)
   await rememberLogin(username, email, uid, false)

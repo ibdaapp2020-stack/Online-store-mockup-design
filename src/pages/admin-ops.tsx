@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { snapshotAdminCatalog } from '../catalog-sync'
 import { adminFetch } from '../lib/data/http'
 import { watchAdminAppointments, watchAdminCategories, watchAdminCustomers, watchAdminServices } from '../lib/data/admin-live'
@@ -50,6 +50,8 @@ type StaffCard = {
   id: string
   name: string
   username: string
+  authUid?: string
+  active?: boolean
   payMode: 'hour' | 'global'
   hourlyRate: number
   globalPay: number
@@ -1308,23 +1310,57 @@ export function AdminClub() {
   )
 }
 
-export function AdminStaff() {
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
+function formatHebrewDateWithDay(dateStr: string) {
+  if (!dateStr) return { formatted: '', dayName: '' }
+  const d = new Date(`${dateStr}T12:00:00`)
+  const dayName = DAY[d.getDay()] || ''
+  const parts = dateStr.split('-')
+  const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dateStr
+  return { formatted, dayName }
+}
+
+export function AdminEmployees() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedEmployeeId = searchParams.get('id') || null
+  const [month, setMonth] = useState(() => searchParams.get('month') || new Date().toISOString().slice(0, 7))
   const [employees, setEmployees] = useState<StaffCard[]>([])
   const [corrections, setCorrections] = useState<Correction[]>([])
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  // Add shift state
+  // Create new employee modal / state
+  const [showCreateEmployee, setShowCreateEmployee] = useState(false)
+  const [createName, setCreateName] = useState('')
+  const [createUsername, setCreateUsername] = useState('')
+  const [createPassword, setCreatePassword] = useState('')
+  const [createPayMode, setCreatePayMode] = useState<'hour' | 'global'>('hour')
+  const [createHourlyRate, setCreateHourlyRate] = useState<number>(35)
+  const [createGlobalPay, setCreateGlobalPay] = useState<number>(6000)
+  const [createSaving, setCreateSaving] = useState(false)
+
+  // Edit employee credentials state
+  const [editName, setEditName] = useState('')
+  const [editUsername, setEditUsername] = useState('')
+  const [editPassword, setEditPassword] = useState('')
+  const [editActive, setEditActive] = useState(true)
+  const [editCredentialsSaving, setEditCredentialsSaving] = useState(false)
+
+  // Edit pay mode & rates state
+  const [payMode, setPayMode] = useState<'hour' | 'global'>('hour')
+  const [hourlyRate, setHourlyRate] = useState<number>(0)
+  const [globalPay, setGlobalPay] = useState<number>(0)
+  const [paySaving, setPaySaving] = useState(false)
+
+  // Manual shift add state
   const [showAddShift, setShowAddShift] = useState(false)
-  const [shiftEmpId, setShiftEmpId] = useState('')
   const [shiftDate, setShiftDate] = useState(() => new Date().toLocaleDateString('en-CA'))
   const [shiftInTime, setShiftInTime] = useState('09:00')
   const [shiftOutTime, setShiftOutTime] = useState('17:00')
   const [shiftNote, setShiftNote] = useState('הזנת מנהל')
   const [shiftSaving, setShiftSaving] = useState(false)
 
-  // Edit punch state
+  // Edit single punch modal state
   const [editingPunch, setEditingPunch] = useState<{ id: string; at: string; note: string; kind: string } | null>(null)
   const [editPunchDate, setEditPunchDate] = useState('')
   const [editPunchTime, setEditPunchTime] = useState('')
@@ -1332,59 +1368,196 @@ export function AdminStaff() {
   const [editPunchSaving, setEditPunchSaving] = useState(false)
 
   async function load(nextMonth = month) {
-    const data = await adminFetch<{ employees: StaffCard[]; corrections: Correction[] }>(`/api/admin/attendance?month=${nextMonth}`)
-    setEmployees(Array.isArray(data.employees) ? data.employees : [])
-    setCorrections(Array.isArray(data.corrections) ? data.corrections : [])
+    setLoading(true)
+    try {
+      const data = await adminFetch<{ employees: StaffCard[]; corrections: Correction[] }>(`/api/admin/attendance?month=${nextMonth}`)
+      setEmployees(Array.isArray(data.employees) ? data.employees : [])
+      setCorrections(Array.isArray(data.corrections) ? data.corrections : [])
+      setError('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון עובדים ונוכחות')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
-    void load(month).catch((reason) => setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון נוכחות'))
+    void load(month)
   }, [month])
 
-  async function savePay(employee: StaffCard, form: FormData) {
-    await adminFetch(`/api/admin/employees/${employee.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        payMode: form.get('payMode'),
-        hourlyRate: Number(form.get('hourlyRate')),
-        globalPay: Number(form.get('globalPay')),
-      }),
-    })
-    setNotice('נתוני השכר עודכנו בהצלחה')
-    await load()
+  // Sync edit forms when selectedEmployee changes
+  const selectedEmployee = employees.find((emp) => emp.id === selectedEmployeeId) || null
+
+  useEffect(() => {
+    if (selectedEmployee) {
+      setEditName(selectedEmployee.name)
+      setEditUsername(selectedEmployee.username)
+      setEditPassword('')
+      setEditActive(selectedEmployee.active !== false)
+      setPayMode(selectedEmployee.payMode || 'hour')
+      setHourlyRate(selectedEmployee.hourlyRate || 0)
+      setGlobalPay(selectedEmployee.globalPay || 0)
+    }
+  }, [selectedEmployee?.id, selectedEmployee?.name, selectedEmployee?.username, selectedEmployee?.payMode, selectedEmployee?.hourlyRate, selectedEmployee?.globalPay, selectedEmployee?.active])
+
+  function selectEmployee(empId: string | null) {
+    if (empId) {
+      setSearchParams({ id: empId, month })
+    } else {
+      setSearchParams(month ? { month } : {})
+    }
+    setError('')
+    setNotice('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function handleCreateEmployee(e: FormEvent) {
+    e.preventDefault()
+    if (!createName.trim() || !createUsername.trim() || !createPassword.trim()) {
+      setError('חובה למלא שם, שם משתמש וסיסמה ראשונית')
+      return
+    }
+    if (createPassword.length < 6) {
+      setError('הסיסמה צריכה להכיל לפחות 6 תווים')
+      return
+    }
+    setCreateSaving(true)
+    setError('')
+    try {
+      await adminFetch('/api/admin/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: createName.trim(),
+          username: createUsername.trim().toLowerCase(),
+          password: createPassword,
+          payMode: createPayMode,
+          hourlyRate: Number(createHourlyRate) || 0,
+          globalPay: Number(createGlobalPay) || 0,
+        }),
+      })
+      setNotice(`העובד/ת ${createName.trim()} נוסף/ה בהצלחה!`)
+      setShowCreateEmployee(false)
+      setCreateName('')
+      setCreateUsername('')
+      setCreatePassword('')
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'הוספת העובד נכשלה')
+    } finally {
+      setCreateSaving(false)
+    }
+  }
+
+  async function handleSaveCredentials(e: FormEvent) {
+    e.preventDefault()
+    if (!selectedEmployee) return
+    if (!editName.trim() || !editUsername.trim()) {
+      setError('חובה למלא שם ושם משתמש')
+      return
+    }
+    if (editPassword && editPassword.length < 6) {
+      setError('הסיסמה החדשה צריכה להכיל לפחות 6 תווים')
+      return
+    }
+    setEditCredentialsSaving(true)
+    setError('')
+    try {
+      await adminFetch(`/api/admin/employees/${selectedEmployee.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName.trim(),
+          username: editUsername.trim().toLowerCase(),
+          password: editPassword ? editPassword : undefined,
+          active: editActive,
+        }),
+      })
+      setNotice('פרטי העובד, שם המשתמש והסיסמה עודכנו בהצלחה!')
+      setEditPassword('')
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'עדכון פרטי העובד נכשל')
+    } finally {
+      setEditCredentialsSaving(false)
+    }
+  }
+
+  async function handleSavePay(e: FormEvent) {
+    e.preventDefault()
+    if (!selectedEmployee) return
+    setPaySaving(true)
+    setError('')
+    try {
+      await adminFetch(`/api/admin/employees/${selectedEmployee.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payMode,
+          hourlyRate: Number(hourlyRate) || 0,
+          globalPay: Number(globalPay) || 0,
+        }),
+      })
+      setNotice('הגדרות השכר עודכנו והמשכורת חושבה מחדש בהצלחה!')
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'עדכון השכר נכשל')
+    } finally {
+      setPaySaving(false)
+    }
   }
 
   async function handleAddShift(e: FormEvent) {
     e.preventDefault()
-    if (!shiftEmpId || !shiftDate || !shiftInTime || !shiftOutTime) {
-      setError('חובה לבחור עובד, תאריך ושעות כניסה ויציאה')
+    if (!selectedEmployee) return
+    if (!shiftDate || !shiftInTime || !shiftOutTime) {
+      setError('חובה לבחור תאריך ושעות כניסה ויציאה')
       return
     }
-    setError('')
-    setNotice('')
     setShiftSaving(true)
-    const emp = employees.find((x) => x.id === shiftEmpId)
+    setError('')
     try {
       await adminFetch('/api/admin/attendance/shift', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employeeId: shiftEmpId,
-          employeeName: emp?.name || '',
+          employeeId: selectedEmployee.id,
+          employeeName: selectedEmployee.name,
           date: shiftDate,
           inTime: shiftInTime,
           outTime: shiftOutTime,
           note: shiftNote.trim() || 'הזנת מנהל',
         }),
       })
-      setNotice(`משמרת נוספה בהצלחה עבור ${emp?.name || ''}!`)
+      setNotice('משמרת נוספה בהצלחה!')
       setShowAddShift(false)
       await load()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'שמירת המשמרת נכשלה')
+      setError(reason instanceof Error ? reason.message : 'הוספת המשמרת נכשלה')
     } finally {
       setShiftSaving(false)
+    }
+  }
+
+  async function handleClockOutOpenShift() {
+    if (!selectedEmployee) return
+    setError('')
+    try {
+      await adminFetch('/api/admin/attendance/punch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: selectedEmployee.id,
+          employeeName: selectedEmployee.name,
+          kind: 'out',
+          at: new Date().toISOString(),
+          note: 'סגירת משמרת ע״י מנהל',
+        }),
+      })
+      setNotice('המשמרת נסגרה בהצלחה!')
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'סגירת המשמרת נכשלה')
     }
   }
 
@@ -1411,7 +1584,7 @@ export function AdminStaff() {
           note: editPunchNote.trim(),
         }),
       })
-      setNotice('הדיווח עודכן בהצלחה!')
+      setNotice('שעת הדיווח עודכנה בהצלחה!')
       setEditingPunch(null)
       await load()
     } catch (reason) {
@@ -1435,461 +1608,848 @@ export function AdminStaff() {
     }
   }
 
-  return (
-    <div>
-      <div className="admin-header-row">
-        <div>
-          <h1>נוכחות ושעות עבודה</h1>
-          <p className="admin-lede">
-            שמות משתמש וסיסמאות נמצאים בלשונית <Link to="/employees">עובדים</Link>. כאן רואים משמרות, מתקנים שעות ומחשבים שכר.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => {
-            if (!shiftEmpId && employees.length > 0) setShiftEmpId(employees[0].id)
-            setShowAddShift((v) => !v)
-          }}
-        >
-          {showAddShift ? '✕ סגור טופס' : '+ הוספת שעות / משמרת ידנית'}
-        </button>
-      </div>
+  const pendingCorrections = corrections.filter((c) => c.status === 'pending')
 
+  return (
+    <div className="admin-staff-unified">
       {notice ? <div className="admin-banner-notice">{notice}</div> : null}
       {error ? <div className="admin-banner-error">{error}</div> : null}
 
-      {/* Manual Shift Addition Form */}
-      {showAddShift ? (
-        <form className="panel form" onSubmit={handleAddShift} style={{ marginBottom: '1.5rem', background: '#f8fafc', border: '2px solid #005a9c' }}>
-          <h3>הוספת משמרת או תיקון שעות ידני לעובד</h3>
-          <label>
-            בחירת עובד
-            <select
-              value={shiftEmpId}
-              onChange={(e) => setShiftEmpId(e.target.value)}
-              required
-            >
-              <option value="">-- בחרו עובד --</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name} ({emp.username})
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="split-fields">
-            <label>
-              תאריך המשמרת
-              <input
-                type="date"
-                value={shiftDate}
-                onChange={(e) => setShiftDate(e.target.value)}
-                required
-              />
-            </label>
-            <label>
-              הערה (למשל: שעות נוספות, תיקון שכחה)
-              <input
-                value={shiftNote}
-                onChange={(e) => setShiftNote(e.target.value)}
-                placeholder="הזנת מנהל"
-              />
-            </label>
-          </div>
-          <div className="split-fields">
-            <label>
-              שעת כניסה
-              <input
-                type="time"
-                value={shiftInTime}
-                onChange={(e) => setShiftInTime(e.target.value)}
-                required
-              />
-            </label>
-            <label>
-              שעת יציאה
-              <input
-                type="time"
-                value={shiftOutTime}
-                onChange={(e) => setShiftOutTime(e.target.value)}
-                required
-              />
-            </label>
-          </div>
-          <div className="choice-row" style={{ marginTop: '0.85rem' }}>
-            <button className="btn" type="submit" disabled={shiftSaving}>
-              {shiftSaving ? 'שומר משמרת...' : 'הוסף משמרת לעובד ✓'}
-            </button>
-            <button className="btn secondary" type="button" onClick={() => setShowAddShift(false)}>
-              ביטול
-            </button>
-          </div>
-        </form>
-      ) : null}
-
-      {/* Edit Punch Modal */}
-      {editingPunch ? (
-        <div className="admin-modal-overlay" onClick={() => setEditingPunch(null)}>
-          <div className="admin-modal-box" onClick={(e) => e.stopPropagation()}>
-            <div className="admin-modal-header">
-              <h3>תיקון דיווח {editingPunch.kind === 'in' ? 'כניסה' : 'יציאה'}</h3>
-              <button type="button" className="admin-modal-close" onClick={() => setEditingPunch(null)}>
-                ✕
+      {/* ========================================================= */}
+      {/* 1. MAIN OVERVIEW: Only employees with primary details     */}
+      {/* ========================================================= */}
+      {!selectedEmployee ? (
+        <div>
+          <div className="admin-header-row">
+            <div>
+              <h1>עובדים ונוכחות</h1>
+              <p className="muted">ניהול צוות העובדים, חשבונות כניסה, מעקב נוכחות וחישוב שכר</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <label className="month-pick" style={{ margin: 0 }}>
+                חודש:
+                <input
+                  type="month"
+                  value={month}
+                  onChange={(e) => {
+                    setMonth(e.target.value)
+                    setSearchParams({ month: e.target.value })
+                  }}
+                  style={{ marginRight: '0.4rem' }}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowCreateEmployee((v) => !v)}
+              >
+                {showCreateEmployee ? '✕ סגור טופס' : '+ עובד חדש'}
               </button>
             </div>
-            <form onSubmit={handleSaveEditedPunch} className="form" style={{ marginTop: '1rem' }}>
+          </div>
+
+          {/* Pending corrections alert across employees */}
+          {pendingCorrections.length > 0 ? (
+            <div
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #fde68a',
+                color: '#92400e',
+                borderRadius: '10px',
+                padding: '0.75rem 1rem',
+                marginBottom: '1.25rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span>⚠️ ממתינות {pendingCorrections.length} בקשות תיקון שעות מעובדים לאישור</span>
+              <span style={{ fontSize: '0.85rem' }}>לחצו על שם העובד לצפייה ואישור</span>
+            </div>
+          ) : null}
+
+          {/* Create Employee Modal / Form */}
+          {showCreateEmployee ? (
+            <form
+              className="panel form"
+              onSubmit={handleCreateEmployee}
+              style={{
+                marginBottom: '1.5rem',
+                background: '#f8fafc',
+                border: '2px solid #005a9c',
+                borderRadius: '12px',
+                padding: '1.25rem',
+              }}
+            >
+              <h3 style={{ margin: '0 0 0.85rem 0', color: '#005a9c' }}>הוספת עובד/ת חדש/ה למערכת</h3>
+              <p className="muted" style={{ margin: '0 0 1rem 0', fontSize: '0.88rem' }}>
+                העובד יקבל שם משתמש וסיסמה שבאמצעותם יוכל להתחבר לאזור האישי ולדווח כניסה/יציאה מהנייד.
+              </p>
+
               <div className="split-fields">
                 <label>
-                  תאריך
+                  שם מלא של העובד
                   <input
-                    type="date"
-                    value={editPunchDate}
-                    onChange={(e) => setEditPunchDate(e.target.value)}
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    placeholder="למשל: דנה לוי"
                     required
                   />
                 </label>
                 <label>
-                  שעה מדויקת
+                  שם משתמש באנגלית (להתחברות)
                   <input
-                    type="time"
-                    value={editPunchTime}
-                    onChange={(e) => setEditPunchTime(e.target.value)}
+                    value={createUsername}
+                    onChange={(e) => setCreateUsername(e.target.value)}
+                    placeholder="למשל: dana"
+                    dir="ltr"
                     required
                   />
                 </label>
               </div>
-              <label>
-                הערת תיקון
-                <input
-                  value={editPunchNote}
-                  onChange={(e) => setEditPunchNote(e.target.value)}
-                  placeholder="למשל: תוקן לפי אישור מנהל"
-                />
-              </label>
+
+              <div className="split-fields">
+                <label>
+                  סיסמה ראשונית (לפחות 6 תווים)
+                  <input
+                    type="password"
+                    value={createPassword}
+                    onChange={(e) => setCreatePassword(e.target.value)}
+                    placeholder="••••••••"
+                    minLength={6}
+                    dir="ltr"
+                    required
+                  />
+                </label>
+                <label>
+                  אופן תשלום שכר
+                  <select
+                    value={createPayMode}
+                    onChange={(e) => setCreatePayMode(e.target.value as 'hour' | 'global')}
+                  >
+                    <option value="hour">לפי שעה (שעתי)</option>
+                    <option value="global">גלובלי לחודש</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="split-fields">
+                {createPayMode === 'hour' ? (
+                  <label>
+                    תעריף שעתי ₪
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      value={createHourlyRate}
+                      onChange={(e) => setCreateHourlyRate(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    סכום גלובלי חודשי ₪
+                    <input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={createGlobalPay}
+                      onChange={(e) => setCreateGlobalPay(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                )}
+              </div>
+
               <div className="choice-row" style={{ marginTop: '1rem' }}>
-                <button className="btn" type="submit" disabled={editPunchSaving}>
-                  {editPunchSaving ? 'שומר...' : 'שמור תיקון שעה ✓'}
+                <button className="btn" type="submit" disabled={createSaving}>
+                  {createSaving ? 'יוצר עובד...' : 'הוספת עובד חדש ✓'}
                 </button>
-                <button className="btn secondary" type="button" onClick={() => setEditingPunch(null)}>
+                <button className="btn secondary" type="button" onClick={() => setShowCreateEmployee(false)}>
                   ביטול
                 </button>
               </div>
             </form>
+          ) : null}
+
+          {/* Loading state */}
+          {loading ? <p className="muted">טוען עובדים ונתוני נוכחות...</p> : null}
+
+          {/* Empty state */}
+          {!loading && employees.length === 0 ? (
+            <div className="panel" style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
+              <p style={{ fontSize: '1.1rem', fontWeight: 600 }}>עדיין אין עובדים במערכת.</p>
+              <p className="muted">לחצו על כפתור &quot;+ עובד חדש&quot; כדי לפתוח כרטיס עובד ראשון.</p>
+            </div>
+          ) : null}
+
+          {/* Employees List with Primary Details */}
+          <div className="admin-employee-cards-grid">
+            {employees.map((employee) => {
+              const hasOpenShift = Boolean(employee.openShift)
+              const hasPending = corrections.some((c) => c.employeeName === employee.name && c.status === 'pending')
+
+              return (
+                <div
+                  key={employee.id}
+                  className="admin-employee-card"
+                  onClick={() => selectEmployee(employee.id)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="employee-card-header">
+                    <div>
+                      <strong className="employee-name-title">{employee.name}</strong>
+                      <span className="employee-username-tag">@{employee.username}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <span className={`badge ${employee.active !== false ? 'in-stock' : 'out-of-stock'}`}>
+                        {employee.active !== false ? 'פעיל' : 'מושבת'}
+                      </span>
+                      {hasPending ? <span className="badge" style={{ background: '#fef3c7', color: '#b45309' }}>בקשת תיקון ⚠️</span> : null}
+                    </div>
+                  </div>
+
+                  {/* Presence indicator */}
+                  <div className="employee-presence-row">
+                    {hasOpenShift ? (
+                      <span className="presence-chip active">
+                        🟢 בעבודה כרגע (משמרת מ־{new Date(employee.openShift!.at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })})
+                      </span>
+                    ) : (
+                      <span className="presence-chip idle">
+                        ⚪ לא במשמרת כרגע
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Primary Summary Metrics for selected month */}
+                  <div className="employee-summary-metrics">
+                    <div className="metric-box">
+                      <span className="metric-label">אופן תשלום</span>
+                      <strong className="metric-val">
+                        {employee.payMode === 'global' ? `גלובלי (${money(employee.globalPay)})` : `שעתי (${money(employee.hourlyRate)})`}
+                      </strong>
+                    </div>
+                    <div className="metric-box">
+                      <span className="metric-label">סה״כ שעות החודש</span>
+                      <strong className="metric-val" style={{ color: '#0369a1' }}>
+                        {hoursLabel(employee.totalMinutes)} שעות ({employee.days.length} ימים)
+                      </strong>
+                    </div>
+                    <div className="metric-box">
+                      <span className="metric-label">שכר מחושב</span>
+                      <strong className="metric-val" style={{ color: '#059669', fontSize: '1.05rem' }}>
+                        {money(employee.salary)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Open action button */}
+                  <div className="employee-card-footer">
+                    <span className="employee-open-link">
+                      ניהול עובד, נוכחות ושכר ⟵
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
-      ) : null}
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '1rem 0' }}>
-        <label className="month-pick" style={{ margin: 0 }}>
-          בחירת חודש לצפייה וחישוב שכר:
-          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-        </label>
-      </div>
-
-      <div className="staff-board">
-        {employees.map((employee) => (
-          <article className="staff-card" key={employee.id}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <strong>{employee.name}</strong>
-                <span className="muted" style={{ marginRight: '0.5rem' }}>@{employee.username}</span>
-              </div>
-              <button
-                type="button"
-                className="btn secondary small"
-                onClick={() => {
-                  setShiftEmpId(employee.id)
-                  setShowAddShift(true)
-                  window.scrollTo({ top: 0, behavior: 'smooth' })
-                }}
-              >
-                + שעות לעובד
-              </button>
-            </header>
-
-            {(employee.days ?? []).length === 0 ? <p className="muted">אין משמרות סגורות בחודש הזה.</p> : null}
-            {(employee.days ?? []).map((day) => (
-              <div className="day-row" key={day.date}>
-                <span>{day.date}</span>
-                <span>
-                  {day.shifts.map((shift) => `${new Date(shift.inAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}–${new Date(shift.outAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`).join(' · ')}
-                </span>
-                <strong>{hoursLabel(day.minutes)}</strong>
-              </div>
-            ))}
-            {employee.openShift ? (
-              <p style={{ color: '#005a9c', fontWeight: 600 }}>
-                ⏳ משמרת פתוחה כרגע מ־{new Date(employee.openShift.at).toLocaleString('he-IL')}
-              </p>
-            ) : null}
-            <div style={{ padding: '0.65rem', background: '#f1f5f9', borderRadius: '6px', margin: '0.75rem 0', fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-              <span>סה״כ שעות: {hoursLabel(employee.totalMinutes)}</span>
-              <span style={{ color: '#059669' }}>שכר מחושב: {money(employee.salary)}</span>
-            </div>
-
-            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '1rem 0 0.5rem 0' }}>
-              היסטוריית דיווחים (תיקון ומחיקת שעות)
-            </h3>
-            {(employee.history ?? []).length === 0 ? <p className="muted">אין דיווחים בחודש הזה.</p> : null}
-            {(employee.history ?? []).map((item) => (
-              <div className="day-row" key={item.id} style={{ display: 'grid', gridTemplateColumns: '70px 1.5fr 1fr auto', alignItems: 'center', gap: '0.5rem' }}>
-                <span className={`badge ${item.kind === 'in' ? 'in-stock' : 'out-of-stock'}`} style={{ fontSize: '0.75rem', textAlign: 'center' }}>
-                  {item.kind === 'in' ? 'כניסה' : item.kind === 'out' ? 'יציאה' : 'הערה'}
-                </span>
-                <span style={{ fontSize: '0.85rem' }}>{new Date(item.at).toLocaleString('he-IL')}</span>
-                <span className="muted" style={{ fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {item.note || '—'}
-                </span>
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  <button
-                    type="button"
-                    className="text-btn"
-                    title="ערוך שעת דיווח זו"
-                    onClick={() => openEditPunchModal(item)}
-                  >
-                    עריכה
-                  </button>
-                  <button
-                    type="button"
-                    className="text-btn danger"
-                    title="מחק דיווח שגוי זה"
-                    onClick={() => handleDeletePunch(item.id)}
-                  >
-                    מחיקה
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            <form
-              className="split-fields"
-              style={{ marginTop: '1rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.85rem' }}
-              onSubmit={(event) => {
-                event.preventDefault()
-                void savePay(employee, new FormData(event.currentTarget))
-              }}
-            >
-              <label>
-                אופן תשלום
-                <select name="payMode" defaultValue={employee.payMode}>
-                  <option value="hour">לפי שעה</option>
-                  <option value="global">גלובלי לחודש</option>
-                </select>
-              </label>
-              <label>
-                תשלום שעתי ₪
-                <input name="hourlyRate" type="number" min={0} step="0.5" defaultValue={employee.hourlyRate} />
-              </label>
-              <label>
-                סכום גלובלי ₪
-                <input name="globalPay" type="number" min={0} step="1" defaultValue={employee.globalPay} />
-              </label>
-              <button className="btn secondary" type="submit">
-                שמור תעריף
-              </button>
-            </form>
+      ) : (
+        /* ========================================================= */
+        /* 2. EMPLOYEE DETAIL VIEW: Account, Table & Salary Calc    */
+        /* ========================================================= */
+        <div className="admin-employee-detail-view">
+          {/* Top Bar with Back Action */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
             <button
               type="button"
-              className="text-btn danger"
-              style={{ marginTop: '0.5rem' }}
-              onClick={() => {
-                if (!window.confirm('למחוק את העובד?')) return
-                void adminFetch(`/api/admin/employees/${employee.id}`, { method: 'DELETE' }).then(() => load())
-              }}
+              className="btn secondary"
+              onClick={() => selectEmployee(null)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}
             >
-              מחיקת עובד מהמערכת
+              <span>← חזרה לרשימת כל העובדים</span>
             </button>
-          </article>
-        ))}
-      </div>
-
-      <h2 style={{ marginTop: '2rem' }}>בקשות תיקון שעות מעובדים</h2>
-      <div className="stack-list">
-        {corrections.length === 0 ? <p className="muted">אין בקשות תיקון כרגע.</p> : null}
-        {corrections.map((item) => (
-          <article key={item.id}>
-            <div>
-              <strong>
-                {item.employeeName} · {item.kind === 'in' ? 'כניסה' : 'יציאה'} · {item.date}
-              </strong>
-              <p className="muted">{item.note}</p>
-              <p style={{ fontSize: '0.8rem' }}>נשלחה ב־{new Date(item.requestedAt).toLocaleString('he-IL')}</p>
-            </div>
-            {item.status === 'pending' ? (
-              <div className="choice-row">
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => {
-                    void adminFetch(`/api/admin/corrections/${item.id}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ status: 'approved' }),
-                    }).then(() => {
-                      setNotice('בקשת התיקון אושרה')
-                      return load()
-                    })
-                  }}
-                >
-                  אישור תיקון
-                </button>
-                <button
-                  className="btn secondary"
-                  type="button"
-                  onClick={() => {
-                    void adminFetch(`/api/admin/corrections/${item.id}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ status: 'rejected' }),
-                    }).then(() => {
-                      setNotice('בקשת התיקון נדחתה')
-                      return load()
-                    })
-                  }}
-                >
-                  דחייה
-                </button>
-              </div>
-            ) : (
-              <span className={`badge ${item.status === 'approved' ? 'in-stock' : 'out-of-stock'}`}>
-                {item.status === 'approved' ? 'אושר' : 'נדחה'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span className={`badge ${selectedEmployee.active !== false ? 'in-stock' : 'out-of-stock'}`}>
+                {selectedEmployee.active !== false ? 'חשבון פעיל' : 'חשבון מושבת'}
               </span>
-            )}
-          </article>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-type EmployeeAccount = { id: string; name: string; username: string; authUid?: string; active?: boolean }
-
-export function AdminEmployees() {
-  const [employees, setEmployees] = useState<EmployeeAccount[]>([])
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-
-  async function load() {
-    const data = await adminFetch<EmployeeAccount[]>('/api/admin/employees')
-    setEmployees(Array.isArray(data) ? data : [])
-  }
-
-  useEffect(() => {
-    void load().catch((reason) => setError(reason instanceof Error ? reason.message : 'לא ניתן לטעון עובדים'))
-  }, [])
-
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    setNotice('')
-    const formElement = event.currentTarget
-    const form = new FormData(formElement)
-    try {
-      await adminFetch('/api/admin/employees', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.get('name'),
-          username: form.get('username'),
-          password: form.get('password'),
-        }),
-      })
-      formElement.reset()
-      setNotice('העובד נוסף ויכול להיכנס לאתר עם שם המשתמש והסיסמה.')
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
-    }
-  }
-
-  async function save(employee: EmployeeAccount, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    setNotice('')
-    const form = new FormData(event.currentTarget)
-    const password = String(form.get('password') || '')
-    if (!employee.authUid && password.length < 6) {
-      setError('צריך להגדיר סיסמה כדי שהעובד יוכל להיכנס')
-      return
-    }
-    try {
-      await adminFetch(`/api/admin/employees/${employee.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.get('name'),
-          username: form.get('username'),
-          password: form.get('password'),
-        }),
-      })
-      setNotice(`פרטי הכניסה של ${String(form.get('name') || employee.name)} נשמרו.`)
-      await load()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'שמירה נכשלה')
-    }
-  }
-
-  return (
-    <div>
-      <h1>עובדים</h1>
-      <p className="admin-lede">לכל עובד יש שם משתמש וסיסמה משלו. איתם נכנסים לאתר ומגיעים למסך הנוכחות. הסיסמה לא מוצגת שוב אחרי השמירה.</p>
-      <form className="panel employee-form" onSubmit={create}>
-        <label>
-          שם
-          <input name="name" required />
-        </label>
-        <label>
-          שם משתמש באנגלית
-          <input name="username" required autoComplete="off" dir="ltr" />
-        </label>
-        <label>
-          סיסמה
-          <input name="password" type="password" minLength={6} required autoComplete="new-password" dir="ltr" />
-        </label>
-        <button className="btn" type="submit">
-          הוספת עובד
-        </button>
-      </form>
-      {error ? <p className="form-errors">{error}</p> : null}
-      {notice ? <p className="profile-note">{notice}</p> : null}
-      <div className="employee-board">
-        {employees.length === 0 ? <p className="muted">עדיין אין עובדים.</p> : null}
-        {employees.map((employee) => (
-          <form className="employee-row" key={`${employee.id}-${employee.username}`} onSubmit={(event) => void save(employee, event)}>
-            <label>
-              שם
-              <input name="name" defaultValue={employee.name} required />
-            </label>
-            <label>
-              שם משתמש
-              <input name="username" defaultValue={employee.username} required autoComplete="off" dir="ltr" />
-            </label>
-            <label>
-              סיסמה חדשה
-              <input name="password" type="password" minLength={6} placeholder={employee.authUid ? 'השאירו ריק כדי לא לשנות' : 'חובה להגדיר סיסמה'} autoComplete="new-password" dir="ltr" />
-            </label>
-            <div className="employee-actions">
-              <span className="muted">{employee.authUid ? 'יש כניסה' : 'אין כניסה'}</span>
-              <button className="btn" type="submit">
-                שמירה
-              </button>
               <button
                 type="button"
-                className="text-btn"
+                className="btn-danger small"
                 onClick={() => {
-                  if (!window.confirm(`למחוק את ${employee.name}?`)) return
-                  void adminFetch(`/api/admin/employees/${employee.id}`, { method: 'DELETE' })
-                    .then(() => load())
+                  if (!window.confirm(`למחוק את העובד ${selectedEmployee.name} לצמיתות מהמערכת?`)) return
+                  void adminFetch(`/api/admin/employees/${selectedEmployee.id}`, { method: 'DELETE' })
+                    .then(() => {
+                      setNotice('העובד נמחק מהמערכת')
+                      selectEmployee(null)
+                      return load()
+                    })
                     .catch((reason) => setError(reason instanceof Error ? reason.message : 'המחיקה נכשלה'))
                 }}
               >
-                מחיקה
+                מחיקת עובד ✕
               </button>
             </div>
-          </form>
-        ))}
-      </div>
+          </div>
+
+          {/* Employee Header */}
+          <div className="panel" style={{ padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', background: '#ffffff', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h1 style={{ margin: 0, fontSize: '1.6rem', color: '#0f172a' }}>{selectedEmployee.name}</h1>
+                <p className="muted" style={{ margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
+                  שם משתמש: <strong>@{selectedEmployee.username}</strong> · מזהה: {selectedEmployee.id}
+                </p>
+              </div>
+              <div style={{ textAlign: 'left', minWidth: '180px' }}>
+                <span className="muted" style={{ fontSize: '0.82rem', display: 'block' }}>שכר מחושב לחודש {month}:</span>
+                <strong style={{ fontSize: '1.4rem', color: '#059669', display: 'block' }}>{money(selectedEmployee.salary)}</strong>
+                <span style={{ fontSize: '0.85rem', color: '#475569' }}>({hoursLabel(selectedEmployee.totalMinutes)} שעות עבודה)</span>
+              </div>
+            </div>
+
+            {/* Open shift indicator on detail view */}
+            {selectedEmployee.openShift ? (
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.75rem 1rem',
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                }}
+              >
+                <div>
+                  <span style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.95rem' }}>
+                    ⏳ משמרת פתוחה כרגע משעה {new Date(selectedEmployee.openShift.at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <p className="muted" style={{ margin: '0.15rem 0 0 0', fontSize: '0.82rem' }}>
+                    העובד דיווח כניסה ב־{new Date(selectedEmployee.openShift.at).toLocaleString('he-IL')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-danger small"
+                  onClick={handleClockOutOpenShift}
+                >
+                  סגור משמרת עכשיו (יציאה) 🛑
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Section 1: Account Settings (Username & Password) */}
+          <section className="panel" style={{ padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', background: '#f8fafc', border: '1px solid #cbd5e1' }}>
+            <h3 style={{ margin: '0 0 0.85rem 0', color: '#005a9c' }}>🔑 הגדרות שם משתמש וסיסמה</h3>
+            <form onSubmit={handleSaveCredentials} className="form">
+              <div className="split-fields">
+                <label>
+                  שם מלא
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  שם משתמש באנגלית
+                  <input
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    dir="ltr"
+                    required
+                  />
+                </label>
+              </div>
+              <div className="split-fields">
+                <label>
+                  סיסמה חדשה (השאירו ריק כדי לא לשנות)
+                  <input
+                    type="password"
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="הקלידו לפחות 6 תווים רק אם רוצים להחליף סיסמה"
+                    minLength={6}
+                    dir="ltr"
+                  />
+                </label>
+                <label className="check-line" style={{ marginTop: '1.8rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={editActive}
+                    onChange={(e) => setEditActive(e.target.checked)}
+                  />
+                  חשבון עובד פעיל (יכול להתחבר)
+                </label>
+              </div>
+              <div style={{ marginTop: '0.75rem' }}>
+                <button className="btn" type="submit" disabled={editCredentialsSaving}>
+                  {editCredentialsSaving ? 'שומר פרטים...' : 'שמור פרטי כניסה וסיסמה ✓'}
+                </button>
+              </div>
+            </form>
+          </section>
+
+          {/* Section 2: Attendance Monthly Table by Date */}
+          <section className="panel" style={{ padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', background: '#ffffff', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#0f172a' }}>📅 טבלת נוכחות לפי תאריך לחודש {month}</h3>
+                <p className="muted" style={{ margin: '0.2rem 0 0 0', fontSize: '0.85rem' }}>
+                  פירוט כניסה, יציאה וסה״כ שעות עבודה יומיות
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <label className="month-pick" style={{ margin: 0 }}>
+                  בחירת חודש:
+                  <input
+                    type="month"
+                    value={month}
+                    onChange={(e) => {
+                      setMonth(e.target.value)
+                      setSearchParams({ id: selectedEmployee.id, month: e.target.value })
+                    }}
+                    style={{ marginRight: '0.4rem' }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setShowAddShift((v) => !v)}
+                >
+                  {showAddShift ? '✕ סגור טופס' : '+ הוספת שעות ידנית'}
+                </button>
+              </div>
+            </div>
+
+            {/* Manual shift form inside employee view */}
+            {showAddShift ? (
+              <form
+                className="panel form"
+                onSubmit={handleAddShift}
+                style={{
+                  marginBottom: '1.25rem',
+                  background: '#f8fafc',
+                  border: '2px solid #005a9c',
+                  borderRadius: '10px',
+                  padding: '1rem',
+                }}
+              >
+                <h4 style={{ margin: '0 0 0.5rem 0', color: '#005a9c' }}>הוספת משמרת או תיקון שעות ידני לעובד זה</h4>
+                <div className="split-fields">
+                  <label>
+                    תאריך המשמרת
+                    <input
+                      type="date"
+                      value={shiftDate}
+                      onChange={(e) => setShiftDate(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label>
+                    הערה (למשל: שעות נוספות, אישור מנהל)
+                    <input
+                      value={shiftNote}
+                      onChange={(e) => setShiftNote(e.target.value)}
+                      placeholder="הזנת מנהל"
+                    />
+                  </label>
+                </div>
+                <div className="split-fields">
+                  <label>
+                    שעת כניסה
+                    <input
+                      type="time"
+                      value={shiftInTime}
+                      onChange={(e) => setShiftInTime(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label>
+                    שעת יציאה
+                    <input
+                      type="time"
+                      value={shiftOutTime}
+                      onChange={(e) => setShiftOutTime(e.target.value)}
+                      required
+                    />
+                  </label>
+                </div>
+                <div className="choice-row" style={{ marginTop: '0.75rem' }}>
+                  <button className="btn" type="submit" disabled={shiftSaving}>
+                    {shiftSaving ? 'שומר משמרת...' : 'הוסף משמרת לטבלה ✓'}
+                  </button>
+                  <button className="btn secondary" type="button" onClick={() => setShowAddShift(false)}>
+                    ביטול
+                  </button>
+                </div>
+              </form>
+            ) : null}
+
+            {/* Full Monthly Table by Date */}
+            {selectedEmployee.days.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', background: '#f8fafc', borderRadius: '8px' }}>
+                <p className="muted" style={{ margin: '0 0 0.5rem 0' }}>לא נרשמו דיווחי נוכחות סגורים בחודש {month}.</p>
+                <button type="button" className="btn secondary small" onClick={() => setShowAddShift(true)}>
+                  + הוסף משמרת ראשונה לחודש זה
+                </button>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="admin-attendance-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '150px' }}>תאריך ויום</th>
+                      <th style={{ width: '130px' }}>שעת כניסה</th>
+                      <th style={{ width: '130px' }}>שעת יציאה</th>
+                      <th style={{ width: '140px' }}>סה״כ זמן ליום</th>
+                      <th>הערות דיווח</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedEmployee.days.map((day) => {
+                      const { formatted, dayName } = formatHebrewDateWithDay(day.date)
+                      const isMultiShift = day.shifts.length > 1
+                      const inTimes = day.shifts.map((s) => new Date(s.inAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })).join(', ')
+                      const outTimes = day.shifts.map((s) => new Date(s.outAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })).join(', ')
+
+                      // Find notes for this day from raw history punches
+                      const notes = (selectedEmployee.history || [])
+                        .filter((h) => h.at && h.at.startsWith(day.date) && h.note)
+                        .map((h) => h.note)
+
+                      return (
+                        <tr key={day.date}>
+                          <td>
+                            <strong>{formatted}</strong>
+                            <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>יום {dayName}</span>
+                          </td>
+                          <td>
+                            <span style={{ fontWeight: 600, color: '#166534' }}>{inTimes}</span>
+                          </td>
+                          <td>
+                            <span style={{ fontWeight: 600, color: '#991b1b' }}>{outTimes}</span>
+                          </td>
+                          <td>
+                            <strong style={{ color: '#0369a1', fontSize: '1rem' }}>
+                              {hoursLabel(day.minutes)} שעות
+                            </strong>
+                            {isMultiShift ? (
+                              <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
+                                ({day.shifts.length} משמרות)
+                              </span>
+                            ) : null}
+                          </td>
+                          <td>
+                            {notes.length > 0 ? (
+                              <span style={{ fontSize: '0.85rem' }}>{notes.join(' · ')}</span>
+                            ) : (
+                              <span className="muted" style={{ fontSize: '0.8rem' }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#f1f5f9', fontWeight: 800, fontSize: '1.05rem' }}>
+                      <td>
+                        סה״כ חודשי ({selectedEmployee.days.length} ימי עבודה)
+                      </td>
+                      <td>—</td>
+                      <td>—</td>
+                      <td style={{ color: '#005a9c' }}>
+                        {hoursLabel(selectedEmployee.totalMinutes)} שעות
+                      </td>
+                      <td>—</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* Section 3: UNDER THE TABLE - Pay Settings & Salary Calculator */}
+          <section className="panel" style={{ padding: '1.5rem', borderRadius: '12px', marginBottom: '1.5rem', background: '#ffffff', border: '2px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 1rem 0', color: '#0f172a', fontSize: '1.2rem' }}>
+              💰 עדכון שכר וחישוב משכורת חודשית
+            </h3>
+
+            {/* Pay settings form */}
+            <form onSubmit={handleSavePay} className="form" style={{ marginBottom: '1.5rem' }}>
+              <div className="split-fields">
+                <label>
+                  אופן תשלום השכר
+                  <select
+                    value={payMode}
+                    onChange={(e) => setPayMode(e.target.value as 'hour' | 'global')}
+                  >
+                    <option value="hour">לפי שעה (שעתי)</option>
+                    <option value="global">גלובלי לחודש (סכום קבוע)</option>
+                  </select>
+                </label>
+                {payMode === 'hour' ? (
+                  <label>
+                    תעריף לשעה ₪
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      value={hourlyRate}
+                      onChange={(e) => setHourlyRate(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    סכום שכר גלובלי לחודש ₪
+                    <input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={globalPay}
+                      onChange={(e) => setGlobalPay(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                )}
+              </div>
+              <div>
+                <button className="btn secondary" type="submit" disabled={paySaving}>
+                  {paySaving ? 'מעדכן שכר...' : 'עדכן תעריף שכר ✓'}
+                </button>
+              </div>
+            </form>
+
+            {/* Immediate Calculated Salary Display Box */}
+            <div
+              style={{
+                background: '#ecfdf5',
+                border: '2px solid #10b981',
+                borderRadius: '12px',
+                padding: '1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '1rem',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: '0.9rem', color: '#065f46', fontWeight: 600, display: 'block' }}>
+                  פירוט חישוב משכורת לחודש {month}:
+                </span>
+                {selectedEmployee.payMode === 'global' ? (
+                  <p style={{ margin: '0.35rem 0 0 0', color: '#047857', fontSize: '1rem' }}>
+                    שכר גלובלי חודשי מוגדר: <strong>{money(selectedEmployee.globalPay)}</strong>
+                    <span className="muted" style={{ marginRight: '0.5rem', fontSize: '0.85rem' }}>
+                      (סה״כ ביצע בחודש זה {hoursLabel(selectedEmployee.totalMinutes)} שעות עבודה)
+                    </span>
+                  </p>
+                ) : (
+                  <p style={{ margin: '0.35rem 0 0 0', color: '#047857', fontSize: '1rem' }}>
+                    סה״כ שעות: <strong>{hoursLabel(selectedEmployee.totalMinutes)}</strong> ({((selectedEmployee.totalMinutes || 0) / 60).toFixed(2)} שעות)
+                    {' × '}
+                    תעריף: <strong>{money(selectedEmployee.hourlyRate)}/שעה</strong>
+                  </p>
+                )}
+              </div>
+              <div style={{ textAlign: 'left', minWidth: '220px' }}>
+                <span style={{ fontSize: '0.85rem', color: '#047857', display: 'block', fontWeight: 600 }}>
+                  סך המשכורת לתשלום:
+                </span>
+                <span style={{ fontSize: '2.1rem', fontWeight: 900, color: '#065f46', lineHeight: 1.1 }}>
+                  {money(selectedEmployee.salary)}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {/* Section 4: Raw punch logs & History (for editing punch times) */}
+          <section className="panel" style={{ padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0', color: '#334155' }}>
+              📋 היסטוריית דיווחים פרטנית (תיקון ועריכת שעות)
+            </h4>
+            <p className="muted" style={{ margin: '0 0 0.85rem 0', fontSize: '0.82rem' }}>
+              כאן ניתן לתקן שעת כניסה/יציאה ספציפית או למחוק דיווח שגוי
+            </p>
+
+            {(selectedEmployee.history || []).length === 0 ? (
+              <p className="muted">אין דיווחים בודדים בחודש זה.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.45rem' }}>
+                {(selectedEmployee.history || []).map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '70px 1.5fr 1fr auto',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      background: 'white',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <span className={`badge ${item.kind === 'in' ? 'in-stock' : 'out-of-stock'}`} style={{ fontSize: '0.74rem', textAlign: 'center' }}>
+                      {item.kind === 'in' ? 'כניסה' : item.kind === 'out' ? 'יציאה' : 'הערה'}
+                    </span>
+                    <span style={{ fontSize: '0.88rem' }}>{new Date(item.at).toLocaleString('he-IL')}</span>
+                    <span className="muted" style={{ fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.note || '—'}
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <button
+                        type="button"
+                        className="text-btn"
+                        onClick={() => openEditPunchModal(item)}
+                      >
+                        עריכה
+                      </button>
+                      <button
+                        type="button"
+                        className="text-btn danger"
+                        onClick={() => handleDeletePunch(item.id)}
+                      >
+                        מחיקה
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Section 5: Correction requests for this employee */}
+          {corrections.filter((c) => c.employeeName === selectedEmployee.name).length > 0 ? (
+            <section className="panel" style={{ padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', background: '#fffbeb', border: '1px solid #fef3c7' }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#92400e' }}>
+                ⚠️ בקשות לתיקון שעות מעובד זה
+              </h4>
+              <div className="stack-list">
+                {corrections
+                  .filter((c) => c.employeeName === selectedEmployee.name)
+                  .map((item) => (
+                    <article key={item.id} style={{ background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                      <div>
+                        <strong>
+                          {item.kind === 'in' ? 'כניסה' : 'יציאה'} · {item.date}
+                        </strong>
+                        <p className="muted" style={{ margin: '0.2rem 0' }}>{item.note}</p>
+                        <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                          נשלח ב־{new Date(item.requestedAt).toLocaleString('he-IL')}
+                        </span>
+                      </div>
+                      {item.status === 'pending' ? (
+                        <div className="choice-row">
+                          <button
+                            className="btn small"
+                            type="button"
+                            onClick={() => {
+                              void adminFetch(`/api/admin/corrections/${item.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status: 'approved' }),
+                              }).then(() => {
+                                setNotice('בקשת התיקון אושרה')
+                                return load()
+                              })
+                            }}
+                          >
+                            אישור תיקון
+                          </button>
+                          <button
+                            className="btn secondary small"
+                            type="button"
+                            onClick={() => {
+                              void adminFetch(`/api/admin/corrections/${item.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status: 'rejected' }),
+                              }).then(() => {
+                                setNotice('בקשת התיקון נדחתה')
+                                return load()
+                              })
+                            }}
+                          >
+                            דחייה
+                          </button>
+                        </div>
+                      ) : (
+                        <span className={`badge ${item.status === 'approved' ? 'in-stock' : 'out-of-stock'}`}>
+                          {item.status === 'approved' ? 'אושר' : 'נדחה'}
+                        </span>
+                      )}
+                    </article>
+                  ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Edit Single Punch Modal */}
+          {editingPunch ? (
+            <div className="admin-modal-overlay" onClick={() => setEditingPunch(null)}>
+              <div className="admin-modal-box" onClick={(e) => e.stopPropagation()}>
+                <div className="admin-modal-header">
+                  <h3>תיקון דיווח {editingPunch.kind === 'in' ? 'כניסה' : 'יציאה'}</h3>
+                  <button type="button" className="admin-modal-close" onClick={() => setEditingPunch(null)}>
+                    ✕
+                  </button>
+                </div>
+                <form onSubmit={handleSaveEditedPunch} className="form" style={{ marginTop: '1rem' }}>
+                  <div className="split-fields">
+                    <label>
+                      תאריך
+                      <input
+                        type="date"
+                        value={editPunchDate}
+                        onChange={(e) => setEditPunchDate(e.target.value)}
+                        required
+                      />
+                    </label>
+                    <label>
+                      שעה מדויקת
+                      <input
+                        type="time"
+                        value={editPunchTime}
+                        onChange={(e) => setEditPunchTime(e.target.value)}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    הערת תיקון
+                    <input
+                      value={editPunchNote}
+                      onChange={(e) => setEditPunchNote(e.target.value)}
+                      placeholder="למשל: תוקן לפי אישור מנהל"
+                    />
+                  </label>
+                  <div className="choice-row" style={{ marginTop: '1rem' }}>
+                    <button className="btn" type="submit" disabled={editPunchSaving}>
+                      {editPunchSaving ? 'שומר...' : 'שמור תיקון שעה ✓'}
+                    </button>
+                    <button className="btn secondary" type="button" onClick={() => setEditingPunch(null)}>
+                      ביטול
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }
+
+export const AdminStaff = AdminEmployees

@@ -178,8 +178,7 @@ export function AdminShell() {
         <NavLink to="/settings">הגדרות</NavLink>
         <span className="admin-nav-label">נוסף</span>
         <NavLink to="/services">תורים</NavLink>
-        <NavLink to="/employees">עובדים</NavLink>
-        <NavLink to="/staff">נוכחות</NavLink>
+        <NavLink to="/employees">עובדים ונוכחות</NavLink>
         <a
           href={storeUrl('/')}
           onClick={() => {
@@ -336,8 +335,7 @@ export function AdminDashboard() {
         <Link className="btn secondary" to="/banner">שליטה בבאנר</Link>
         <Link className="btn secondary" to="/customers">לקוחות</Link>
         <Link className="btn secondary" to="/services">תורים</Link>
-        <Link className="btn secondary" to="/employees">עובדים</Link>
-        <Link className="btn secondary" to="/staff">נוכחות</Link>
+        <Link className="btn secondary" to="/employees">עובדים ונוכחות</Link>
       </div>
       <h2>הזמנות אחרונות</h2>
       <ul className="admin-list">
