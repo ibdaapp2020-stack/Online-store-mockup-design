@@ -20,6 +20,39 @@ import { findStoreOrder } from './orders'
 import { emailAdminFetch, notifyOrderStatus, notifyStockChange } from '../notify'
 import type { Badge, Product } from '../../types'
 
+export const DEFAULT_SERVICES = [
+  {
+    id: 'physio',
+    name: 'פיזיותרפיה',
+    openTime: '09:00',
+    closeTime: '19:00',
+    slotMinutes: 30,
+    days: [0, 1, 2, 3, 4, 5, 6],
+    therapist: 'פיזיותרפיסט מומחה',
+    active: true,
+  },
+  {
+    id: 'hyperbaric',
+    name: 'טיפול בתא לחץ',
+    openTime: '09:00',
+    closeTime: '19:00',
+    slotMinutes: 45,
+    days: [0, 1, 2, 3, 4, 5, 6],
+    therapist: 'מטפל תא לחץ',
+    active: true,
+  },
+  {
+    id: 'disc',
+    name: 'טיפול פריצות דיסק',
+    openTime: '09:00',
+    closeTime: '19:00',
+    slotMinutes: 30,
+    days: [0, 1, 2, 3, 4, 5, 6],
+    therapist: 'מומחה עמוד שדרה',
+    active: true,
+  },
+]
+
 function slug(value: string) {
   return value
     .trim()
@@ -277,6 +310,12 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
 
   if (url.pathname === '/api/admin/services' && method === 'GET') {
     const snap = await getDocs(collection(db(), 'services'))
+    if (snap.empty) {
+      await Promise.all(
+        DEFAULT_SERVICES.map((s) => setDoc(doc(db(), 'services', s.id), s, { merge: true })),
+      )
+      return DEFAULT_SERVICES as T
+    }
     return snap.docs.map((item) => normalizeService(item.id, item.data())) as T
   }
   if (url.pathname === '/api/admin/services' && method === 'POST') {
@@ -285,9 +324,9 @@ export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T
     if (!name) fail('חסר שם שירות')
     const payload = {
       name,
-      days: Array.isArray(raw.days) ? raw.days.map(Number) : [0, 1, 2, 3, 4],
+      days: Array.isArray(raw.days) ? raw.days.map(Number) : [0, 1, 2, 3, 4, 5, 6],
       openTime: String(raw.openTime || '09:00'),
-      closeTime: String(raw.closeTime || '17:00'),
+      closeTime: String(raw.closeTime || '19:00'),
       slotMinutes: Number(raw.slotMinutes) || 30,
       therapist: String(raw.therapist || ''),
       active: true,
@@ -518,6 +557,12 @@ export async function accountFetch<T>(path: string, init?: RequestInit): Promise
   }
   if (url.pathname === '/api/services') {
     const snap = await getDocs(collection(db(), 'services'))
+    if (snap.empty) {
+      await Promise.all(
+        DEFAULT_SERVICES.map((s) => setDoc(doc(db(), 'services', s.id), s, { merge: true })),
+      )
+      return DEFAULT_SERVICES as T
+    }
     return snap.docs
       .map((item) => normalizeService(item.id, item.data()))
       .filter((item) => item.active !== false) as T
@@ -526,13 +571,56 @@ export async function accountFetch<T>(path: string, init?: RequestInit): Promise
     const serviceId = url.pathname.split('/')[3]
     const date = url.searchParams.get('date') || ''
     const serviceSnap = await getDoc(doc(db(), 'services', serviceId))
-    if (!serviceSnap.exists()) fail('שירות או תאריך לא תקינים')
+    const serviceData = serviceSnap.exists()
+      ? serviceSnap.data()
+      : DEFAULT_SERVICES.find((s) => s.id === serviceId) || {
+          openTime: '09:00',
+          closeTime: '19:00',
+          slotMinutes: 30,
+          days: [0, 1, 2, 3, 4, 5, 6],
+        }
     const taken = new Set(
       (await getDocs(collection(db(), 'appointments'))).docs
         .filter((item) => item.data().serviceId === serviceId && item.data().date === date && item.data().status !== 'cancelled')
         .map((item) => String(item.data().time)),
     )
-    return slotsFor({ ...serviceSnap.data(), id: serviceSnap.id }, date, taken) as T
+    return slotsFor({ ...serviceData, id: serviceId }, date, taken) as T
+  }
+  if (url.pathname === '/api/appointments' && method === 'POST') {
+    const raw = body
+    const serviceId = String(raw.serviceId || '').trim()
+    let serviceName = String(raw.serviceName || '')
+    let therapist = ''
+    if (serviceId) {
+      const sSnap = await getDoc(doc(db(), 'services', serviceId))
+      if (sSnap.exists()) {
+        serviceName = String(sSnap.data().name || serviceName)
+        therapist = String(sSnap.data().therapist || '')
+      } else {
+        const def = DEFAULT_SERVICES.find((s) => s.id === serviceId)
+        if (def) {
+          serviceName = def.name
+          therapist = def.therapist
+        }
+      }
+    }
+    const id = `apt-${Date.now().toString(36)}`
+    const appointment = {
+      id,
+      serviceId,
+      serviceName: serviceName || 'קביעת תור',
+      date: String(raw.date || ''),
+      time: String(raw.time || ''),
+      customerName: String(raw.customerName || raw.name || 'לקוח').trim(),
+      phone: String(raw.phone || '').trim(),
+      email: String(raw.email || '').trim(),
+      note: String(raw.note || '').trim(),
+      therapist,
+      status: 'booked',
+      createdAt: new Date().toISOString(),
+    }
+    await setDoc(doc(db(), 'appointments', id), appointment)
+    return appointment as T
   }
   if (url.pathname === '/api/account/appointments' && method === 'POST') {
     const user = currentUser()
@@ -628,10 +716,10 @@ function clock(total: number) {
 
 function slotsFor(service: DocumentLike, date: string, taken: Set<string>) {
   const start = minutes(String(service.openTime || '09:00'))
-  const end = minutes(String(service.closeTime || '17:00'))
+  const end = minutes(String(service.closeTime || '19:00'))
   const step = Number(service.slotMinutes) || 30
-  const days = Array.isArray(service.days) ? service.days.map(Number) : [0, 1, 2, 3, 4]
-  const weekday = new Date(`${date}T12:00:00+03:00`).getUTCDay()
+  const days = Array.isArray(service.days) ? service.days.map(Number) : [0, 1, 2, 3, 4, 5, 6]
+  const weekday = new Date(`${date}T12:00:00+03:00`).getDay()
   if (start == null || end == null || !days.includes(weekday)) return []
   const slots: string[] = []
   for (let time = start; time + step <= end; time += step) {

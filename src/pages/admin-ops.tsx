@@ -128,6 +128,9 @@ export function AdminServices() {
   useEffect(() => {
     const stopServices = watchAdminServices(
       (rows) => {
+        if (rows.length === 0) {
+          void adminFetch('/api/admin/services').catch(() => {})
+        }
         setServices(rows)
         setLoadingServices(false)
         setSelectedServiceId((prev) => {

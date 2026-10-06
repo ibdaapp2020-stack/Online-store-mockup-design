@@ -43,7 +43,7 @@ export function HomePage() {
       }))
     : [
         { id: 'new', to: '/catalog?badge=new', custom: false as const },
-        { id: 'clinic', to: '/account#appointments', custom: false as const },
+        { id: 'clinic', to: '/appointments', custom: false as const },
         { id: 'kit', to: '/p/kit', custom: false as const },
       ]
 
@@ -155,12 +155,16 @@ export function HomePage() {
               return (
                 <Link key={item.id} className="hero-slide hero-clinic" to={item.to}>
                   <div>
-                    <p className="hero-kicker">המרפאות</p>
-                    <h2>קובעים תור</h2>
-                    <p>מדידה וייעוץ במרפאה, ובאותו ביקור רואים את המוצרים.</p>
+                    <p className="hero-kicker">מרפאת מומחים · כל יום 09:00–19:00</p>
+                    <h2>קביעת תור למרפאה</h2>
+                    <p>פיזיותרפיה · טיפול בתא לחץ · טיפול פריצות דיסק</p>
                     <span className="hero-cta">לקביעת תור</span>
                   </div>
-                  <img src="/products/knee-sleeve.jpg" alt="" />
+                  <div className="clinic-hero-visual">
+                    <span className="clinic-badge-pill">🩺 פיזיותרפיה</span>
+                    <span className="clinic-badge-pill">💨 תא לחץ (HBOT)</span>
+                    <span className="clinic-badge-pill">🦴 פריצות דיסק</span>
+                  </div>
                 </Link>
               )
             }
@@ -217,14 +221,21 @@ export function HomePage() {
         </div>
       </section>
 
-      <Link className="clinic-banner" to="/account#appointments">
+      <Link className="clinic-banner" to="/appointments">
         <div>
-          <p className="hero-kicker">שולחים את הקישור ללקוח</p>
+          <p className="hero-kicker">שעות פעילות: כל יום מ־09:00 עד 19:00</p>
           <h2>קביעת תור למרפאה</h2>
-          <p>הלקוח נכנס, קובע תור, ובדרך רואה את המוצרים של החנות.</p>
-          <span className="hero-cta">לקביעת תור</span>
+          <p>3 טיפולים מקצועיים בהתאמה אישית: פיזיותרפיה · טיפול בתא לחץ · טיפול פריצות דיסק</p>
+          <span className="hero-cta">לקביעת תור בקליק ←</span>
         </div>
-        <img src="/products/knee-sleeve.jpg" alt="" />
+        <div className="clinic-banner-visual">
+          <div className="clinic-badge-clock">⏰ פתוח כל יום 09:00–19:00</div>
+          <div className="clinic-treatments-tags">
+            <span className="clinic-tag-pill">🩺 פיזיותרפיה</span>
+            <span className="clinic-tag-pill">💨 תא לחץ (HBOT)</span>
+            <span className="clinic-tag-pill">🦴 פריצות דיסק</span>
+          </div>
+        </div>
       </Link>
 
       <section>

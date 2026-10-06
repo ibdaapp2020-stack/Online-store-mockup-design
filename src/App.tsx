@@ -4,6 +4,7 @@ import { firebaseEnvError } from './lib/firebase/config'
 import { isPortal, portalUrl } from './lib/surface'
 import { Layout } from './components/Layout'
 import { AccountPage } from './pages/Account'
+import { AppointmentsPage } from './pages/Appointments'
 import { CartPage } from './pages/Cart'
 import { CatalogPage } from './pages/Catalog'
 import { CheckoutPage } from './pages/Checkout'
@@ -105,6 +106,7 @@ function StoreRoutes() {
         <Route path="/order/:id" element={<OrderPage />} />
         <Route path="/track" element={<TrackPage />} />
         <Route path="/track/:id" element={<TrackPage />} />
+        <Route path="/appointments" element={<AppointmentsPage />} />
         <Route path="/account" element={<AccountPage />} />
       </Route>
       <Route path="/staff" element={<Navigate to="/account?role=staff" replace />} />

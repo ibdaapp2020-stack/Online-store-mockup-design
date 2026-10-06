@@ -37,6 +37,7 @@ export function Layout() {
                   בית
                 </NavLink>
                 <NavLink to="/catalog">קטלוג</NavLink>
+                <NavLink to="/appointments">קביעת תור</NavLink>
                 <NavLink to="/track">מעקב</NavLink>
               </nav>
               <NavLink to="/account" className="head-account">
