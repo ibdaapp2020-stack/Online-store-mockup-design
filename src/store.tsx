@@ -139,8 +139,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       (reason) => {
         console.error(reason)
-        setError('לא הצלחנו לטעון את המוצרים. נסו שוב.')
-        setReady(true)
+        void fetch('/api/catalog')
+          .then((response) => (response.ok ? response.json() : Promise.reject(reason)))
+          .then((data: { products?: Product[] }) => {
+            applyProductRows((data.products || []).filter((product) => product.active !== false))
+          })
+          .catch(() => {
+            setError('לא הצלחנו לטעון את המוצרים. נסו שוב.')
+            setReady(true)
+          })
       },
     )
     const unsubCategories = onSnapshot(

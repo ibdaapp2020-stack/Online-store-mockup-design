@@ -34,9 +34,21 @@ service cloud.firestore {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow create: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.role == 'CUSTOMER'
-        && request.resource.data.email == request.auth.token.email;
-      allow update, delete: if isAdmin();
+        && request.resource.data.email == request.auth.token.email
+        && (
+          request.resource.data.role == 'CUSTOMER'
+          || (
+            request.resource.data.role == 'ADMIN'
+            && request.auth.token.email == 'propharm2026@gmail.com'
+          )
+        );
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.email == 'propharm2026@gmail.com'
+        && request.resource.data.role == 'ADMIN'
+      );
+      allow delete: if isAdmin();
     }
 
     match /categories/{id} {
@@ -46,7 +58,8 @@ service cloud.firestore {
 
     match /products/{id} {
       allow get: if isAdmin() || publicProduct();
-      allow list: if isAdmin() || resource.data.active == true;
+      allow list: if isAdmin();
+      allow list: if resource.data.active == true;
       allow create, update, delete: if isAdmin();
     }
 

@@ -2,7 +2,7 @@ export function isPortal() {
   if (import.meta.env.VITE_APP_SURFACE === 'portal') return true
   if (typeof window === 'undefined') return false
   const host = window.location.hostname.toLowerCase()
-  return host === 'portal.propharm.dev' || host.startsWith('portal.')
+  return host === 'portal.propharm.dev' || host === 'www.portal.propharm.dev' || host.startsWith('portal.')
 }
 
 export function storeUrl(path = '/') {

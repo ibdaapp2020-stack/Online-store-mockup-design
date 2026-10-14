@@ -96,10 +96,16 @@ export function orderFrom(id: string, data: DocumentData): Order {
 }
 
 export async function listProducts(activeOnly = false) {
-  const snap = activeOnly
-    ? await getDocs(query(collection(db(), 'products'), where('active', '==', true)))
-    : await getDocs(collection(db(), 'products'))
-  return snap.docs.map((item) => productFrom(item.id, item.data()))
+  try {
+    const snap = activeOnly
+      ? await getDocs(query(collection(db(), 'products'), where('active', '==', true)))
+      : await getDocs(collection(db(), 'products'))
+    return snap.docs.map((item) => productFrom(item.id, item.data()))
+  } catch (error) {
+    if (activeOnly) throw error
+    const snap = await getDocs(query(collection(db(), 'products'), where('active', '==', true)))
+    return snap.docs.map((item) => productFrom(item.id, item.data()))
+  }
 }
 
 export async function listCategories() {
