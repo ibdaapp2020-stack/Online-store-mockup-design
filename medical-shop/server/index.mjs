@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import multer from 'multer'
-import { applyClubDiscount, adminSettings, lineOptions, nextSettings, personalCoupon, publicSettings, readSession, registerClub, saveProductOptions, settleClub, signSession, takeVariantStock, writeSessionCookie } from './club.mjs'
-import { db, getSettings, hashPassword, initDb, loadEnv, mapOrder, mapProduct, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
+import { applyClubDiscount, adminSettings, lineOptions, nextSettings, personalCoupon, publicSettings, readSession, registerClub, settleClub, signSession, takeVariantStock, writeSessionCookie } from './club.mjs'
+import { db, getSettings, hashPassword, initDb, loadEnv, mapOrder, mapProduct, migrateProductSchema, nextOrderId, quoteOrder, verifyPassword } from './db.mjs'
 import { persistLive, restoreLive } from './live-store.mjs'
+import { publicCatalogProducts, registerProducts } from './products.mjs'
+import { firebaseStatus, isFirebaseData } from './firebase.mjs'
+import { registerFirebaseApi, verifyFirebaseAdmin } from './firebase-api.mjs'
 
 loadEnv()
 await initDb()
@@ -87,18 +90,39 @@ app.use(express.static(join(root, 'public')))
 function requireAdmin(req, res, next) {
   const token = req.cookies.medica_admin
   if (token && readSession(db, token, 'admin')) return next()
-  const session = token && db.prepare('SELECT token FROM sessions WHERE token = ?').get(token)
-  if (!session) return res.status(401).json({ error: 'נדרשת כניסת ניהול' })
-  next()
+  verifyFirebaseAdmin(req)
+    .then((admin) => {
+      if (admin) return next()
+      res.status(401).json({ error: 'נדרשת כניסת ניהול' })
+    })
+    .catch(() => res.status(401).json({ error: 'נדרשת כניסת ניהול' }))
 }
 
-app.get('/api/catalog', (_req, res) => {
+app.get('/api/admin/firebase/status', (_req, res) => {
+  res.json(firebaseStatus())
+})
+
+app.post('/api/admin/login-firebase', async (req, res) => {
+  try {
+    const admin = await verifyFirebaseAdmin({ headers: { authorization: `Bearer ${req.body?.idToken || ''}` } })
+    if (!admin) return res.status(401).json({ error: 'אין הרשאת ניהול ב-Firebase' })
+    const token = signSession(db, 'admin', { uid: admin.uid })
+    db.prepare('INSERT INTO sessions (token, created_at) VALUES (?, ?)').run(token, new Date().toISOString())
+    writeSessionCookie(res, 'medica_admin', token)
+    res.json({ ok: true, uid: admin.uid })
+  } catch (error) {
+    res.status(401).json({ error: error instanceof Error ? error.message : 'כניסת Firebase נכשלה' })
+  }
+})
+
+if (isFirebaseData()) {
+  registerFirebaseApi(app, { requireAdmin, upload })
+}
+
+if (!isFirebaseData()) app.get('/api/catalog', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, max-age=0')
-  const categories = db.prepare('SELECT id, name, blurb FROM categories ORDER BY sort').all()
-  const products = db
-    .prepare('SELECT * FROM products WHERE active = 1 ORDER BY rowid DESC')
-    .all()
-    .map(mapProduct)
+  const categories = db.prepare('SELECT id, name, blurb, image FROM categories ORDER BY sort').all()
+  const products = publicCatalogProducts(db)
   res.json({ categories, products, settings: publicSettings(getSettings()) })
 })
 
@@ -127,14 +151,15 @@ app.post('/api/orders', (req, res) => {
   db.exec('BEGIN')
   try {
     for (const line of lines) {
-      const product = db.prepare('SELECT * FROM products WHERE id = ? AND active = 1').get(line.productId)
+      const product = db.prepare("SELECT * FROM products WHERE id = ? AND COALESCE(status, CASE WHEN active = 1 THEN 'active' ELSE 'inactive' END) = 'active'").get(line.productId)
       const qty = Number(line.qty)
       if (!product || !Number.isInteger(qty) || qty < 1) throw new Error('מוצר לא זמין')
-      const options = lineOptions(product, { ...line, qty })
+      const allowEmpty = Number(product.allow_backorder) === 1 || settings.allowSellWithoutStock || Number(product.track_inventory) === 0
+      const options = lineOptions(product, { ...line, qty }, allowEmpty)
       if (options.tracked) takeVariantStock(db, product, options, qty)
       else {
-        if (product.stock < qty) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
-        db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(qty, product.id)
+        if (product.stock < qty && !allowEmpty) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
+        if (Number(product.track_inventory) !== 0) db.prepare('UPDATE products SET stock = MAX(stock - ?, 0) WHERE id = ?').run(qty, product.id)
       }
       items.push({ productId: product.id, name: product.name, price: product.price, qty, size: options.size, color: options.color, other: options.other })
     }
@@ -210,7 +235,11 @@ app.get('/api/admin/stats', requireAdmin, (_req, res) => {
   const orders = db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS revenue FROM orders').get()
   const open = db.prepare("SELECT COUNT(*) AS count FROM orders WHERE status != 'delivered'").get()
   const products = db.prepare('SELECT COUNT(*) AS count FROM products').get()
-  const lowStock = db.prepare('SELECT * FROM products WHERE active = 1 AND stock <= 5 ORDER BY stock').all().map(mapProduct)
+  const threshold = Number(getSettings().lowStockThreshold ?? 5)
+  const lowStock = db
+    .prepare('SELECT * FROM products WHERE COALESCE(status, CASE WHEN active = 1 THEN \'active\' ELSE \'inactive\' END) = \'active\' AND stock > 0 AND stock <= ? ORDER BY stock')
+    .all(threshold)
+    .map(mapProduct)
   const recent = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 6').all().map(mapOrder)
   const customers = db.prepare('SELECT * FROM customers').all().length
   const appointments = db.prepare('SELECT * FROM appointments').all().filter((item) => item.status === 'booked').length
@@ -245,124 +274,9 @@ app.get('/api/admin/stats', requireAdmin, (_req, res) => {
   })
 })
 
-app.get('/api/admin/products', requireAdmin, (_req, res) => {
-  res.json(db.prepare('SELECT * FROM products ORDER BY rowid DESC').all().map(mapProduct))
-})
+if (!isFirebaseData()) registerProducts(app, { db, requireAdmin, upload, storedImage, uploadsDir: uploads })
 
-app.get('/api/admin/products/:id', requireAdmin, (req, res) => {
-  const row = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
-  if (!row) return res.status(404).json({ error: 'המוצר לא נמצא' })
-  res.json(mapProduct(row))
-})
-
-function readProduct(body, image) {
-  const specs = String(body.specs ?? '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-  return {
-    name: String(body.name ?? '').trim(),
-    category: String(body.category ?? '').trim(),
-    price: Number(body.price),
-    compareAt: body.compareAt === '' || body.compareAt == null ? null : Number(body.compareAt),
-    description: String(body.description ?? '').trim(),
-    specs,
-    stock: Number(body.stock),
-    badge: body.badge ? String(body.badge) : null,
-    rating: Number(body.rating),
-    reviews: Number(body.reviews),
-    tone: String(body.tone || '#0f766e'),
-    image,
-    active: body.active === 'false' || body.active === false ? 0 : 1,
-  }
-}
-
-function validProduct(body, product) {
-  const priceText = String(body.price ?? '').trim()
-  const stockText = String(body.stock ?? '').trim()
-  return Boolean(
-    product.name &&
-      product.category &&
-      priceText !== '' &&
-      stockText !== '' &&
-      Number.isFinite(product.price) &&
-      product.price >= 0 &&
-      Number.isInteger(product.stock) &&
-      product.stock >= 0,
-  )
-}
-
-app.post('/api/admin/products', requireAdmin, upload.single('imageFile'), (req, res) => {
-  const image = req.file ? storedImage(req.file) : String(req.body.image || '').trim()
-  const product = readProduct(req.body, image || '/products/kit.png')
-  if (!validProduct(req.body, product)) return res.status(400).json({ error: 'חובה למלא שם, קטגוריה, מחיר וכמות' })
-  let id = String(req.body.id || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-  if (!id) id = `item-${Date.now().toString(36)}`
-  if (db.prepare('SELECT id FROM products WHERE id = ?').get(id)) return res.status(400).json({ error: 'המזהה כבר קיים' })
-  db.prepare(
-    `INSERT INTO products (id, name, category, price, compare_at, description, specs, stock, badge, rating, reviews, tone, image, active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    product.name,
-    product.category,
-    product.price,
-    product.compareAt,
-    product.description,
-    JSON.stringify(product.specs),
-    product.stock,
-    product.badge,
-    Number.isFinite(product.rating) ? product.rating : 4.5,
-    Number.isFinite(product.reviews) ? product.reviews : 0,
-    product.tone,
-    product.image,
-    product.active,
-  )
-  saveProductOptions(db, id, req.body)
-  persistLive(db)
-  res.status(201).json(mapProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(id)))
-})
-
-app.patch('/api/admin/products/:id', requireAdmin, upload.single('imageFile'), (req, res) => {
-  const current = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
-  if (!current) return res.status(404).json({ error: 'המוצר לא נמצא' })
-  const image = req.file ? storedImage(req.file) : String(req.body.image || current.image)
-  const product = readProduct(req.body, image)
-  if (!validProduct(req.body, product)) return res.status(400).json({ error: 'חובה למלא שם, קטגוריה, מחיר וכמות' })
-  db.prepare(
-    `UPDATE products SET name=?, category=?, price=?, compare_at=?, description=?, specs=?, stock=?, badge=?, rating=?, reviews=?, tone=?, image=?, active=? WHERE id=?`,
-  ).run(
-    product.name,
-    product.category,
-    product.price,
-    product.compareAt,
-    product.description,
-    JSON.stringify(product.specs),
-    product.stock,
-    product.badge,
-    Number.isFinite(product.rating) ? product.rating : current.rating,
-    Number.isFinite(product.reviews) ? product.reviews : current.reviews,
-    product.tone,
-    product.image,
-    product.active,
-    req.params.id,
-  )
-  saveProductOptions(db, req.params.id, req.body)
-  persistLive(db)
-  res.json(mapProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)))
-})
-
-app.delete('/api/admin/products/:id', requireAdmin, (req, res) => {
-  db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id)
-  persistLive(db)
-  res.json({ ok: true })
-})
-
-app.get('/api/admin/orders', requireAdmin, (_req, res) => {
+if (!isFirebaseData()) app.get('/api/admin/orders', requireAdmin, (_req, res) => {
   res.json(db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all().map(mapOrder))
 })
 
@@ -398,6 +312,7 @@ try {
 }
 db.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').run(hashPassword(process.env.ADMIN_PASSWORD || 'SyncShop2026'))
 restoreLive(db)
+migrateProductSchema(db)
 materializeImages()
 persistLive(db)
 
@@ -409,8 +324,9 @@ app.use((error, _req, res, next) => {
   return res.status(400).json({ error: error.message || 'העלאה נכשלה' })
 })
 
-app.listen(5180, '127.0.0.1', () => {
-  console.log('API http://127.0.0.1:5180')
+const port = Number(process.env.API_PORT || 5180)
+app.listen(port, '127.0.0.1', () => {
+  console.log(`API http://127.0.0.1:${port} source=${process.env.DATA_SOURCE || 'sqlite'}`)
 })
 
 export default app

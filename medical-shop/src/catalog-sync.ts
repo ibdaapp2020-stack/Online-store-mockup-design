@@ -36,28 +36,25 @@ export function preferStoredImage(product: Product, api?: Product): Product {
 export function applyLiveCatalog(apiProducts: Product[], apiCategories: Category[], apiSettings: ShopSettings) {
   const live = readLiveCatalog()
   if (!live) return { products: apiProducts, categories: apiCategories, settings: apiSettings }
-  const apiById = new Map(apiProducts.map((product) => [product.id, product]))
-  const products = live.products.map((product) => preferStoredImage(product, apiById.get(product.id)))
-  if (products.some((product, index) => product.image !== live.products[index]?.image)) {
-    localStorage.setItem(KEY, JSON.stringify({ ...live, products, savedAt: Date.now() }))
-  }
+  const liveById = new Map(live.products.map((product) => [product.id, product]))
+  const products = apiProducts.map((product) => preferStoredImage(liveById.get(product.id) ?? product, product))
   return {
-    products: products.filter((product) => product.active !== false),
-    categories: live.categories.length ? live.categories : apiCategories,
-    settings: live.settings ?? apiSettings,
+    products,
+    categories: apiCategories.length ? apiCategories : live.categories,
+    settings: apiSettings,
   }
 }
 
 export async function snapshotAdminCatalog() {
-  const [products, categories, settings] = await Promise.all([
-    fetch('/api/admin/products', { credentials: 'include' }).then((response) => response.json()) as Promise<Product[]>,
+  const [catalog, categories, settings] = await Promise.all([
+    fetch('/api/catalog').then((response) => response.json()) as Promise<{ products: Product[]; categories: Category[]; settings: ShopSettings }>,
     fetch('/api/admin/categories', { credentials: 'include' }).then((response) => response.json()) as Promise<Category[]>,
     fetch('/api/admin/settings', { credentials: 'include' }).then((response) => response.json()) as Promise<ShopSettings>,
   ])
-  if (!Array.isArray(products)) return
+  if (!Array.isArray(catalog.products)) return
   saveLiveCatalog({
-    products,
-    categories: Array.isArray(categories) ? categories : [],
+    products: catalog.products,
+    categories: Array.isArray(categories) && categories.length ? categories : catalog.categories,
     settings,
   })
 }

@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function publishedProduct() {
+      return resource.data.status == 'active';
+    }
+
+    match /products/{id} {
+      allow read: if publishedProduct() || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /orders/{id} {
+      allow read: if isAdmin()
+        || (request.auth != null && resource.data.customer.uid == request.auth.uid);
+      allow create: if request.auth != null
+        || request.resource.data.keys().hasAll(['customer', 'items', 'total']);
+      allow update, delete: if isAdmin();
+    }
+
+    match /customers/{id} {
+      allow read, update: if isAdmin() || (request.auth != null && request.auth.uid == id);
+      allow create: if isAdmin() || request.auth.uid == id;
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /productEvents/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /admins/{uid} {
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow write: if false;
+    }
+  }
+}

@@ -122,6 +122,10 @@ export function nextSettings(current, body) {
     notifyEmail: String(body.notifyEmail ?? current.notifyEmail ?? '').trim(),
     smtpUser: String(body.smtpUser ?? current.smtpUser ?? '').trim(),
     smtpPass: smtpPass || current.smtpPass || '',
+    lowStockThreshold: Math.max(0, Math.round(Number(body.lowStockThreshold ?? current.lowStockThreshold ?? 5))),
+    allowSellWithoutStock: Boolean(body.allowSellWithoutStock),
+    vatRate: Math.min(100, Math.max(0, Number(body.vatRate ?? current.vatRate ?? 18))),
+    vatIncluded: body.vatIncluded == null ? Boolean(current.vatIncluded ?? true) : Boolean(body.vatIncluded),
   }
 }
 
@@ -619,7 +623,7 @@ export function saveProductOptions(db, productId, body) {
   )
 }
 
-export function lineOptions(product, line) {
+export function lineOptions(product, line, allowEmpty = false) {
   const choices = readChoices(product)
   const size = choices.size ? String(line.size ?? '').trim() : ''
   const color = choices.color ? String(line.color ?? '').trim() : ''
@@ -630,7 +634,7 @@ export function lineOptions(product, line) {
   const variants = readVariants(product)
   if (variants.length) {
     const match = variants.find((row) => row.size === size && row.color === color && row.other === other)
-    if (!match || match.stock < Number(line.qty)) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
+    if (!match || (match.stock < Number(line.qty) && !allowEmpty)) throw new Error(`אין מספיק מלאי עבור ${product.name}`)
   }
   return {
     size: size || undefined,
@@ -645,7 +649,7 @@ export function lineOptions(product, line) {
 
 export function takeVariantStock(db, product, options, qty) {
   const next = readVariants(product).map((row) =>
-    row.size === options.sizeValue && row.color === options.colorValue && row.other === options.otherValue ? { ...row, stock: row.stock - qty } : row,
+    row.size === options.sizeValue && row.color === options.colorValue && row.other === options.otherValue ? { ...row, stock: Math.max(0, row.stock - qty) } : row,
   )
   db.prepare('UPDATE products SET variants = ?, stock = ? WHERE id = ?').run(
     JSON.stringify(next),
@@ -1158,19 +1162,29 @@ export function registerClub(app, { db, requireAdmin }) {
     res.json({ ok: true })
   })
 
+  function mapCategory(row) {
+    const productCount = db.prepare('SELECT COUNT(*) AS count FROM products WHERE category = ?').get(row.id)?.count ?? 0
+    return { ...row, productCount }
+  }
+
   app.get('/api/admin/categories', requireAdmin, (_req, res) => {
-    res.json(db.prepare('SELECT * FROM categories').all().sort((a, b) => a.sort - b.sort))
+    res.json(db.prepare('SELECT * FROM categories').all().sort((a, b) => a.sort - b.sort).map(mapCategory))
+  })
+
+  app.get('/api/categories', (_req, res) => {
+    res.json(db.prepare('SELECT id, name, blurb, image FROM categories ORDER BY sort').all())
   })
 
   app.post('/api/admin/categories', requireAdmin, (req, res) => {
     const name = String(req.body?.name ?? '').trim()
     const blurb = String(req.body?.blurb ?? '').trim()
+    const image = String(req.body?.image ?? '').trim()
     if (!name) return res.status(400).json({ error: 'חסר שם קטגוריה' })
     const categoryId = id('cat')
     const sort = db.prepare('SELECT * FROM categories').all().reduce((max, row) => Math.max(max, Number(row.sort) || 0), -1) + 1
-    db.prepare('INSERT INTO categories (id, name, blurb, sort) VALUES (?, ?, ?, ?)').run(categoryId, name, blurb || name, sort)
+    db.prepare('INSERT INTO categories (id, name, blurb, sort, image) VALUES (?, ?, ?, ?, ?)').run(categoryId, name, blurb || name, sort, image || null)
     persistLive(db)
-    res.status(201).json(db.prepare('SELECT * FROM categories WHERE id = ?').get(categoryId))
+    res.status(201).json(mapCategory(db.prepare('SELECT * FROM categories WHERE id = ?').get(categoryId)))
   })
 
   app.patch('/api/admin/categories/:id', requireAdmin, (req, res) => {
@@ -1178,10 +1192,11 @@ export function registerClub(app, { db, requireAdmin }) {
     if (!current) return res.status(404).json({ error: 'הקטגוריה לא נמצאה' })
     const name = String(req.body?.name ?? current.name).trim()
     const blurb = String(req.body?.blurb ?? current.blurb).trim()
+    const image = req.body?.image == null ? current.image : String(req.body.image).trim()
     if (!name) return res.status(400).json({ error: 'חסר שם קטגוריה' })
-    db.prepare('UPDATE categories SET name = ?, blurb = ? WHERE id = ?').run(name, blurb, current.id)
+    db.prepare('UPDATE categories SET name = ?, blurb = ?, image = ? WHERE id = ?').run(name, blurb, image || null, current.id)
     persistLive(db)
-    res.json(db.prepare('SELECT * FROM categories WHERE id = ?').get(current.id))
+    res.json(mapCategory(db.prepare('SELECT * FROM categories WHERE id = ?').get(current.id)))
   })
 
   app.delete('/api/admin/categories/:id', requireAdmin, (req, res) => {

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { snapshotAdminCatalog } from '../catalog-sync'
 import { formatDate, money } from '../pricing'
+import { uploadImages } from '../admin/products/storageService'
 
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 
@@ -472,11 +473,12 @@ export function AdminServices() {
   )
 }
 
-type ShopCategory = { id: string; name: string; blurb: string }
+type ShopCategory = { id: string; name: string; blurb: string; image?: string; productCount?: number }
 
 export function AdminCategories() {
   const [categories, setCategories] = useState<ShopCategory[]>([])
   const [error, setError] = useState('')
+  const [image, setImage] = useState('')
 
   async function load() {
     try {
@@ -499,9 +501,10 @@ export function AdminCategories() {
       await adminFetch('/api/admin/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.get('name'), blurb: form.get('blurb') }),
+        body: JSON.stringify({ name: form.get('name'), blurb: form.get('blurb'), image }),
       })
       event.currentTarget.reset()
+      setImage('')
       await snapshotAdminCatalog()
       await load()
     } catch (reason) {
@@ -512,7 +515,7 @@ export function AdminCategories() {
   return (
     <div>
       <h1>קטגוריות</h1>
-      <p className="muted">קטגוריה חדשה מופיעה בחנות, ואפשר לשייך אליה מוצרים במסך המוצר.</p>
+      <p className="muted">אותן קטגוריות מופיעות בטופס המוצר ובסינון החנות. אי אפשר למחוק קטגוריה שמכילה מוצרים.</p>
       <form className="panel form" onSubmit={create}>
         <label>
           שם
@@ -522,6 +525,21 @@ export function AdminCategories() {
           תיאור קצר
           <input name="blurb" />
         </label>
+        <label>
+          תמונת קטגוריה
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (!file) return
+              void uploadImages([file])
+                .then((urls) => setImage(urls[0] || ''))
+                .catch((reason) => setError(reason instanceof Error ? reason.message : 'העלאה נכשלה'))
+            }}
+          />
+        </label>
+        {image ? <img className="cat-preview" src={image} alt="" /> : null}
         {error ? <p className="form-errors">{error}</p> : null}
         <button className="btn" type="submit">
           הוספת קטגוריה
@@ -530,9 +548,11 @@ export function AdminCategories() {
       <div className="admin-table">
         {categories.map((category) => (
           <article key={category.id}>
+            {category.image ? <img src={category.image} alt="" /> : null}
             <div>
               <strong>{category.name}</strong>
               <p className="muted">{category.blurb}</p>
+              <p className="muted">{category.productCount ?? 0} מוצרים</p>
             </div>
             <button
               type="button"
@@ -543,7 +563,7 @@ export function AdminCategories() {
                 void adminFetch(`/api/admin/categories/${category.id}`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ name, blurb: category.blurb }),
+                  body: JSON.stringify({ name, blurb: category.blurb, image: category.image }),
                 }).then(() => snapshotAdminCatalog().then(load))
               }}
             >
@@ -553,6 +573,10 @@ export function AdminCategories() {
               type="button"
               className="text-btn"
               onClick={() => {
+                if ((category.productCount ?? 0) > 0) {
+                  setError('יש מוצרים בקטגוריה. העבירו אותם לפני המחיקה')
+                  return
+                }
                 if (!window.confirm('למחוק את הקטגוריה?')) return
                 void adminFetch(`/api/admin/categories/${category.id}`, { method: 'DELETE' })
                   .then(() => snapshotAdminCatalog().then(load))

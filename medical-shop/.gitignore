@@ -1,2 +1,8 @@
 data/
 .env
+backups/
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+*-debug.log
+firebase-debug.log
+ui-debug.log

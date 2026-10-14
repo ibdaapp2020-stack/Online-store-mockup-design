@@ -29,12 +29,30 @@ export function quote(
   }
 }
 
-export function money(value: number) {
+export function roundMoney(value: number, digits = 2) {
+  const factor = 10 ** digits
+  return Math.round((Number(value) + Number.EPSILON) * factor) / factor
+}
+
+export function money(value: number, digits = 0) {
   return new Intl.NumberFormat('he-IL', {
     style: 'currency',
     currency: 'ILS',
-    maximumFractionDigits: 0,
-  }).format(value)
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(roundMoney(value, digits))
+}
+
+export function moneyExact(value: number) {
+  return money(value, 2)
+}
+
+export function grossProfit(price: number, cost?: number, vatRate = 0, vatIncluded = true) {
+  if (cost == null || !Number.isFinite(cost)) return null
+  const net = vatIncluded && vatRate > 0 ? price / (1 + vatRate / 100) : price
+  const profit = roundMoney(net - cost)
+  const margin = net === 0 ? 0 : roundMoney((profit / net) * 100)
+  return { profit, margin, net: roundMoney(net) }
 }
 
 export function formatDate(iso: string) {

@@ -35,26 +35,131 @@ export function verifyPassword(password, stored) {
   return timingSafeEqual(current, next)
 }
 
-export function mapProduct(row) {
+export function mapProduct(row, extra = {}) {
+  const images = asJsonList(row.images)
+  const image = row.image || images[0] || ''
+  const status = row.status || (row.active === 1 ? 'active' : 'inactive')
   return {
     id: row.id,
     name: row.name,
+    sku: row.sku || row.id,
+    barcode: row.barcode || '',
+    brand: row.brand || '',
     category: row.category,
+    subcategory: row.subcategory || '',
     price: row.price,
     compareAt: row.compare_at == null ? undefined : row.compare_at,
+    costPrice: row.cost_price == null || row.cost_price === '' ? undefined : Number(row.cost_price),
+    salePrice: row.sale_price == null || row.sale_price === '' ? undefined : Number(row.sale_price),
+    saleStart: row.sale_start || undefined,
+    saleEnd: row.sale_end || undefined,
     description: row.description,
-    specs: JSON.parse(row.specs),
+    shortDescription: row.short_description || '',
+    specs: asJsonValue(row.specs, []),
     stock: row.stock,
+    lowStockThreshold: row.low_stock_threshold == null ? undefined : Number(row.low_stock_threshold),
+    trackInventory: row.track_inventory == null ? true : Number(row.track_inventory) === 1,
+    allowBackorder: Number(row.allow_backorder) === 1,
+    unit: row.unit || 'יח׳',
     badge: row.badge || undefined,
     rating: row.rating,
     reviews: row.reviews,
     tone: row.tone,
-    image: row.image,
-    active: row.active === 1,
+    image,
+    images: images.length ? images : image ? [image] : [],
+    active: status === 'active',
+    status,
+    seoTitle: row.seo_title || '',
+    seoDescription: row.seo_description || '',
+    slug: row.slug || row.id,
+    createdAt: row.created_at || undefined,
+    updatedAt: row.updated_at || undefined,
     sizes: asJsonList(row.sizes),
     colors: asJsonList(row.colors),
     choices: asJsonValue(row.choices, { size: false, color: false, other: false, otherLabel: 'אחר', others: [] }),
     variants: asJsonValue(row.variants, []),
+    ...extra,
+  }
+}
+
+export function mapPublicProduct(row) {
+  const product = mapProduct(row)
+  delete product.costPrice
+  delete product.history
+  delete product.usedInOrders
+  const now = Date.now()
+  const start = product.saleStart ? Date.parse(product.saleStart) : 0
+  const end = product.saleEnd ? Date.parse(product.saleEnd) : Number.POSITIVE_INFINITY
+  if (product.salePrice != null && product.salePrice < product.price && now >= start && now <= end) {
+    product.compareAt = product.price
+    product.price = product.salePrice
+    product.badge = product.badge || 'sale'
+  }
+  return product
+}
+
+export function migrateProductSchema(database = db) {
+  const columns = [
+    "sku TEXT",
+    "barcode TEXT",
+    "brand TEXT",
+    "subcategory TEXT",
+    "short_description TEXT",
+    "cost_price REAL",
+    "sale_price REAL",
+    "sale_start TEXT",
+    "sale_end TEXT",
+    "images TEXT",
+    "low_stock_threshold INTEGER",
+    "track_inventory INTEGER DEFAULT 1",
+    "allow_backorder INTEGER DEFAULT 0",
+    "unit TEXT",
+    "seo_title TEXT",
+    "seo_description TEXT",
+    "slug TEXT",
+    "status TEXT",
+    "created_at TEXT",
+    "updated_at TEXT",
+  ]
+  for (const column of columns) {
+    try {
+      database.exec(`ALTER TABLE products ADD COLUMN ${column}`)
+    } catch {
+      /* already exists */
+    }
+  }
+  try {
+    database.exec('ALTER TABLE categories ADD COLUMN image TEXT')
+  } catch {
+    /* already exists */
+  }
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS product_events (
+      id TEXT PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      actor TEXT NOT NULL DEFAULT 'admin',
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `)
+  const now = new Date().toISOString()
+  const rows = database.prepare('SELECT id, image, sku, slug, status, active, images, created_at, updated_at FROM products').all()
+  const update = database.prepare(
+    'UPDATE products SET sku = ?, slug = ?, status = ?, images = ?, created_at = ?, updated_at = ? WHERE id = ?',
+  )
+  for (const row of rows) {
+    const images = asJsonList(row.images)
+    const imageList = images.length ? images : row.image ? [row.image] : []
+    update.run(
+      row.sku || row.id,
+      row.slug || row.id,
+      row.status || (row.active === 1 ? 'active' : 'inactive'),
+      JSON.stringify(imageList),
+      row.created_at || now,
+      row.updated_at || now,
+      row.id,
+    )
   }
 }
 
@@ -113,6 +218,10 @@ const DEFAULT_SETTINGS = {
   notifyEmail: 'propharm2026@gmail.com',
   smtpUser: 'propharm2026@gmail.com',
   smtpPass: '',
+  lowStockThreshold: 5,
+  allowSellWithoutStock: false,
+  vatRate: 18,
+  vatIncluded: true,
 }
 
 export function getSettings() {
@@ -208,6 +317,8 @@ export async function initDb() {
   } catch {
     /* username column is added later */
   }
+
+  migrateProductSchema(db)
 
   if (db.prepare('SELECT COUNT(*) AS count FROM products').get().count > 0) return
 

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { quote, type Quote } from './pricing'
 import type { CartLine, Category, Customer, Order, Product, ShopSettings } from './types'
-import { optionStock } from './types'
+import { canPurchase, optionStock } from './types'
 import { applyLiveCatalog } from './catalog-sync'
 
 
@@ -29,6 +29,10 @@ const FALLBACK_SETTINGS: ShopSettings = {
   clubPercent: 5,
   notifyEmail: 'propharm2026@gmail.com',
   smtpUser: 'propharm2026@gmail.com',
+  lowStockThreshold: 5,
+  allowSellWithoutStock: false,
+  vatRate: 18,
+  vatIncluded: true,
 }
 
 export type CartDetail = CartLine & { product: Product }
@@ -89,7 +93,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSettings(live.settings)
     setCart((current) => {
       const stored = current.length ? current : readJson<CartLine[]>(CART_KEY) ?? []
-      return stored.filter((line) => live.products.some((product) => product.id === line.productId && product.stock > 0))
+      return stored.filter((line) => live.products.some((product) => product.id === line.productId && canPurchase(product, live.settings)))
     })
     const savedCoupon = localStorage.getItem(COUPON_KEY)
     const savedPercent = Number(localStorage.getItem('medica-coupon-percent') || 0)
@@ -166,7 +170,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const size = options?.size || undefined
     const color = options?.color || undefined
     const other = options?.other || undefined
-    const available = product ? optionStock(product, { size, color, other }) : 0
+    const available = product ? (canPurchase(product, settings, { size, color, other }) ? Math.max(optionStock(product, { size, color, other }), qty) : optionStock(product, { size, color, other })) : 0
     if (!product || available <= 0 || qty <= 0) return
     const key = cartKey(productId, size, color, other)
     setCart((prev) => {

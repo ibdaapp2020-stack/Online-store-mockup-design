@@ -5,12 +5,13 @@ import { ProductCard } from '../components/ProductCard'
 import { EmptyState, QtyControl, Stars, useTitle } from '../components/ui'
 import { money } from '../pricing'
 import { useStore } from '../store'
-import { optionStock } from '../types'
+import { canPurchase, optionStock, storePrice } from '../types'
 
 export function ProductPage() {
   const { id = '' } = useParams()
-  const { addToCart, products, categories, ready } = useStore()
+  const { addToCart, products, categories, ready, settings } = useStore()
   const product = products.find((item) => item.id === id)
+  const [photo, setPhoto] = useState(0)
   useTitle(product?.name ?? 'מוצר')
   const [qty, setQty] = useState(1)
   const [size, setSize] = useState('')
@@ -24,6 +25,7 @@ export function ProductPage() {
     setColor('')
     setOther('')
     setChoiceError('')
+    setPhoto(0)
   }, [id])
 
   if (!ready) return null
@@ -45,8 +47,15 @@ export function ProductPage() {
     color: choices.color ? color : undefined,
     other: choices.other ? other : undefined,
   })
-  const soldOut = selectedStock <= 0
+  const priced = storePrice(product)
+  const soldOut = !canPurchase(product, settings, {
+    size: choices.size ? size : undefined,
+    color: choices.color ? color : undefined,
+    other: choices.other ? other : undefined,
+  })
   const readyChoice = (!choices.size || size) && (!choices.color || color) && (!choices.other || other)
+  const gallery = product.images?.length ? product.images : [productImage(product)]
+  const maxQty = selectedStock > 0 ? selectedStock : 99
 
   return (
     <div>
@@ -56,17 +65,40 @@ export function ProductPage() {
       </p>
       <div className="product-layout">
         <div className="gallery-main">
-          <img src={productImage(product)} alt={product.name} />
+          <img
+            src={gallery[photo] || productImage(product)}
+            alt={product.name}
+            onError={(event) => {
+              event.currentTarget.src = '/products/placeholder.svg'
+            }}
+          />
+          {gallery.length > 1 ? (
+            <div className="thumbs">
+              {gallery.map((url, index) => (
+                <button key={`${url}-${index}`} type="button" className={photo === index ? 'thumb on' : 'thumb'} onClick={() => setPhoto(index)}>
+                  <img src={url} alt="" />
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="product-copy">
           <h1>{product.name}</h1>
           <Stars rating={product.rating} reviews={product.reviews} />
-          <p>{product.description}</p>
+          <p>{product.shortDescription || product.description}</p>
           <div className="price-row big">
-            <span className={product.compareAt ? 'price-now discounted' : 'price-now'}>{money(product.price)}</span>
-            {product.compareAt ? <span className="compare">{money(product.compareAt)}</span> : null}
+            <span className={priced.compareAt ? 'price-now discounted' : 'price-now'}>{money(priced.price)}</span>
+            {priced.compareAt ? <span className="compare">{money(priced.compareAt)}</span> : null}
           </div>
-          <p className="stock">{soldOut ? 'האפשרות הזו אזלה' : readyChoice ? `נותרו ${selectedStock} מהבחירה הזו` : `במלאי ${product.stock}`}</p>
+          <p className="stock">
+            {soldOut
+              ? settings.allowSellWithoutStock || product.allowBackorder
+                ? 'אזל מהמלאי, ניתן להזמין לפי מדיניות החנות'
+                : 'האפשרות הזו אזלה'
+              : readyChoice
+                ? `נותרו ${selectedStock} מהבחירה הזו`
+                : `במלאי ${product.stock}`}
+          </p>
           {choices.size ? (
             <div>
               <strong>מידה אחת</strong>
@@ -122,7 +154,7 @@ export function ProductPage() {
             </div>
           ) : null}
           <p className="muted">בוחרים אפשרות אחת בכל פריט. למידה או צבע נוספים מוסיפים את המוצר שוב לסל.</p>
-          {soldOut || !readyChoice ? null : <QtyControl qty={qty} max={selectedStock} onChange={setQty} />}
+          {soldOut || !readyChoice ? null : <QtyControl qty={qty} max={maxQty} onChange={setQty} />}
           {choiceError ? <p className="form-errors">{choiceError}</p> : null}
           <button
             type="button"
@@ -145,7 +177,7 @@ export function ProductPage() {
               addToCart(product.id, qty, { size, color, other })
             }}
           >
-            {soldOut ? 'אזל במלאי הדמו' : 'הוספה לסל'}
+            {soldOut ? 'אזל מהמלאי' : 'הוספה לסל'}
           </button>
           <h2>מפרט</h2>
           <ul className="specs">
