@@ -153,7 +153,10 @@ export function AdminShell() {
     }
   }, [navigate])
 
-  if (!ready) return <p className="admin-wait">בודק הרשאה...</p>
+  if (!ready) {
+    if (!currentUser()) return <AdminLogin />
+    return <p className="admin-wait">בודק הרשאה...</p>
+  }
 
   return (
     <div className="admin-app">
@@ -368,7 +371,7 @@ export function AdminProducts() {
       .then((rows) => setProducts(rows))
       .catch((reason: unknown) => {
         console.error(reason)
-        setError('לא הצלחנו לטעון את המוצרים. נסו שוב.')
+        setError(reason instanceof Error && reason.message ? reason.message : 'חיבור לא תקין')
       })
       .finally(() => setLoading(false))
     void adminFetch<Array<{ id: string; name: string }>>('/api/admin/categories')

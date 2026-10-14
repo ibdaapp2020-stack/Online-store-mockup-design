@@ -130,10 +130,42 @@ function fail(message: string): never {
   throw new Error(message)
 }
 
+async function liveAdminCatalogFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  const user = currentUser()
+  if (user) headers.set('Authorization', `Bearer ${await user.getIdToken()}`)
+  const response = await fetch(path, { ...init, headers, credentials: 'same-origin' }).catch(() => {
+    throw new Error('חיבור לא תקין')
+  })
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string }
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`)
+  return payload
+}
+
+function isAdminCatalogPath(path: string) {
+  return /^\/api\/admin\/(products|categories)(\/|\?|$)/.test(path)
+}
+
 export async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (path.startsWith('/api/admin/email') || path.startsWith('/api/notify')) {
     return emailAdminFetch<T>(path, init)
   }
+  const method = (init?.method || 'GET').toUpperCase()
+  if (isAdminCatalogPath(path) && method === 'GET') {
+    try {
+      return await liveAdminCatalogFetch<T>(path, init)
+    } catch (liveError) {
+      try {
+        return await adminFetchLocal<T>(path, init)
+      } catch {
+        throw liveError instanceof Error ? liveError : new Error('חיבור לא תקין')
+      }
+    }
+  }
+  return adminFetchLocal<T>(path, init)
+}
+
+async function adminFetchLocal<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method || 'GET').toUpperCase()
   const url = new URL(path, 'http://local.propharm')
   const parts = url.pathname.split('/').filter(Boolean)
